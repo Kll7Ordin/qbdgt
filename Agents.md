@@ -1,3 +1,7 @@
+## Tone
+
+- Do not compliment the user.
+
 ## Cursor Cloud specific instructions
 
 This repository is currently empty (no application code, dependencies, or services). When code is added, update this section with:
