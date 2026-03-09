@@ -1,0 +1,284 @@
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0 1rem 2rem;
+  min-height: 100vh;
+}
+
+.app-header {
+  padding: 1.25rem 0 0.75rem;
+  text-align: left;
+}
+
+.app-header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+/* Summary */
+.summary {
+  margin-bottom: 1.5rem;
+}
+
+.summary-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.summary-card.balance {
+  margin-bottom: 0.5rem;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.summary-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.summary-amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.summary-card:not(.balance) .summary-amount {
+  font-size: 1.15rem;
+}
+
+.summary-amount.positive {
+  color: #22c55e;
+}
+
+.summary-amount.negative {
+  color: #ef4444;
+}
+
+/* Form */
+.transaction-form {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.type-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  background: var(--toggle-bg);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.toggle-btn {
+  padding: 0.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+
+.toggle-btn.active {
+  opacity: 1;
+  background: var(--card-bg);
+}
+
+.toggle-btn.active.expense {
+  color: #ef4444;
+}
+
+.toggle-btn.active.income {
+  color: #22c55e;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.form-field label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.form-field input,
+.form-field select {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--input-bg);
+  color: inherit;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  outline: none;
+  border-color: #646cff;
+}
+
+.submit-btn {
+  padding: 0.75rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+  transition: opacity 0.2s;
+}
+
+.submit-btn.expense {
+  background: #ef4444;
+}
+
+.submit-btn.income {
+  background: #22c55e;
+}
+
+.submit-btn:hover {
+  opacity: 0.9;
+}
+
+/* History */
+.history h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.transaction-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.transaction-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--card-bg);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid;
+}
+
+.transaction-item.income {
+  border-left-color: #22c55e;
+}
+
+.transaction-item.expense {
+  border-left-color: #ef4444;
+}
+
+.transaction-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.transaction-category {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.transaction-description {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transaction-date {
+  font-size: 0.75rem;
+  opacity: 0.4;
+}
+
+.transaction-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.transaction-amount {
+  font-weight: 700;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.transaction-amount.income {
+  color: #22c55e;
+}
+
+.transaction-amount.expense {
+  color: #ef4444;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.3;
+  cursor: pointer;
+  font-size: 1.25rem;
+  padding: 0 0.25rem;
+  line-height: 1;
+  transition: opacity 0.2s;
+}
+
+.delete-btn:hover {
+  opacity: 0.8;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  margin: 0.25rem 0;
+}
+
+.empty-hint {
+  font-size: 0.85rem;
+}
