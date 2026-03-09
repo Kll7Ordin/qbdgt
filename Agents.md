@@ -2,6 +2,11 @@
 
 - Do not compliment the user.
 
+## User environment
+
+- Desktop: Linux Mint
+- Mobile: GrapheneOS
+
 ## Cursor Cloud specific instructions
 
 This is an offline-first PWA budgeting app built with React, TypeScript, Vite, Dexie.js (IndexedDB), and vite-plugin-pwa.
