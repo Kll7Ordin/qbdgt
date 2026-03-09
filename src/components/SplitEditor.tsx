@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, type Transaction, type Category } from '../db';
+import { getData, setSplits, clearSplits, subscribe, type Transaction, type Category } from '../db';
 
 interface Props {
   transaction: Transaction;
@@ -19,19 +19,18 @@ export function SplitEditor({ transaction, categories, onClose }: Props) {
   ]);
 
   useEffect(() => {
-    if (transaction.id === undefined) return;
-    db.transactionSplits
-      .where('transactionId')
-      .equals(transaction.id)
-      .toArray()
-      .then((existing) => {
-        if (existing.length > 0) {
-          setLines(existing.map((s) => ({
-            categoryId: s.categoryId,
-            amount: String(s.amount),
-          })));
-        }
-      });
+    function load() {
+      const { transactionSplits } = getData();
+      const existing = transactionSplits.filter((s) => s.transactionId === transaction.id);
+      if (existing.length > 0) {
+        setLines(existing.map((s) => ({
+          categoryId: s.categoryId,
+          amount: String(s.amount),
+        })));
+      }
+    }
+    load();
+    return subscribe(load);
   }, [transaction.id]);
 
   function updateLine(i: number, field: keyof SplitLine, value: string | number) {
@@ -51,21 +50,19 @@ export function SplitEditor({ transaction, categories, onClose }: Props) {
   const valid = Math.abs(diff) < 0.01 && lines.every((l) => l.categoryId !== '' && parseFloat(l.amount) > 0);
 
   async function save() {
-    if (!valid || transaction.id === undefined) return;
-    await db.transactionSplits.where('transactionId').equals(transaction.id).delete();
-    for (const l of lines) {
-      await db.transactionSplits.add({
-        transactionId: transaction.id,
+    if (!valid) return;
+    await setSplits(
+      transaction.id,
+      lines.map((l) => ({
         categoryId: l.categoryId as number,
         amount: parseFloat(l.amount),
-      });
-    }
+      })),
+    );
     onClose();
   }
 
-  async function clearSplits() {
-    if (transaction.id === undefined) return;
-    await db.transactionSplits.where('transactionId').equals(transaction.id).delete();
+  async function handleClearSplits() {
+    await clearSplits(transaction.id);
     onClose();
   }
 
@@ -110,7 +107,7 @@ export function SplitEditor({ transaction, categories, onClose }: Props) {
         </p>
 
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={clearSplits}>Clear splits</button>
+          <button className="btn btn-ghost" onClick={handleClearSplits}>Clear splits</button>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={save} disabled={!valid}>Save</button>
         </div>

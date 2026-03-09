@@ -1,11 +1,19 @@
-import { useState, useRef } from 'react';
-import { db, type Transaction } from '../db';
+import { useState, useEffect, useRef } from 'react';
+import {
+  getData,
+  subscribe,
+  bulkAddTransactions,
+  addCategory,
+  upsertBudget,
+  addCategoryRule,
+  type Transaction,
+} from '../db';
 import { parseBankCsv } from '../parsers/csv';
 import { parseWorkbook, toBudgets, toRules } from '../parsers/xlsx';
 import { parseAmazonPaste } from '../parsers/amazon';
 import { parsePaypalPaste } from '../parsers/paypal';
 import { detectDuplicates } from '../logic/duplicates';
-import { categorizeTransactions } from '../logic/categorize';
+import { categorizeTransactionsInPlace } from '../logic/categorize';
 import { matchPaypalTransactions } from '../logic/matching';
 import { findRefundCandidates, applyRefundToOriginalMonth, type RefundCandidate } from '../logic/refunds';
 
@@ -35,7 +43,20 @@ export function ImportView() {
     source: string;
   } | null>(null);
   const [refundPrompts, setRefundPrompts] = useState<RefundCandidate[]>([]);
+  const [latestDate, setLatestDate] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function refresh() {
+      const { transactions } = getData();
+      const latest = transactions.length
+        ? transactions.reduce((a, b) => (a.txnDate > b.txnDate ? a : b)).txnDate
+        : null;
+      setLatestDate(latest);
+    }
+    refresh();
+    return subscribe(refresh);
+  }, []);
 
   function reset() {
     setResult(null);
@@ -47,32 +68,28 @@ export function ImportView() {
     txns: Omit<Transaction, 'id'>[],
     source: string,
   ) {
-    await categorizeTransactions(txns);
-    const { duplicates, unique } = await detectDuplicates(txns);
+    categorizeTransactionsInPlace(txns);
+    const { duplicates, unique } = detectDuplicates(txns);
 
     if (duplicates.length > 0) {
       setDupReview({ dups: duplicates, unique, source });
       return;
     }
 
-    const ids: number[] = [];
-    for (const t of unique) {
-      const id = await db.transactions.add(t as Transaction);
-      if (id !== undefined) ids.push(id);
-    }
-
-    const insertedTxns = await db.transactions.bulkGet(ids);
-    const validInserted = insertedTxns.filter((t): t is Transaction => t !== undefined);
+    const ids = await bulkAddTransactions(unique);
 
     let matched = 0;
     if (source === 'paypal_paste') {
-      matched = await matchPaypalTransactions(validInserted);
+      matched = await matchPaypalTransactions(ids);
     }
 
-    const credits = validInserted.filter((t) => t.ignoreInBudget);
+    const { transactions } = getData();
+    const insertedTxns = transactions.filter((t) => ids.includes(t.id));
+    const credits = insertedTxns.filter((t) => t.ignoreInBudget);
     let refundCandidateCount = 0;
     if (credits.length > 0) {
-      const candidates = await findRefundCandidates(credits);
+      const creditIds = credits.map((t) => t.id);
+      const candidates = findRefundCandidates(creditIds);
       if (candidates.length > 0) {
         setRefundPrompts(candidates);
         refundCandidateCount = candidates.length;
@@ -90,24 +107,20 @@ export function ImportView() {
 
   async function confirmDupImport() {
     if (!dupReview) return;
-    const ids: number[] = [];
-    for (const t of dupReview.unique) {
-      const id = await db.transactions.add(t as Transaction);
-      if (id !== undefined) ids.push(id);
-    }
-
-    const insertedTxns = await db.transactions.bulkGet(ids);
-    const validInserted = insertedTxns.filter((t): t is Transaction => t !== undefined);
+    const ids = await bulkAddTransactions(dupReview.unique);
 
     let matched = 0;
     if (dupReview.source === 'paypal_paste') {
-      matched = await matchPaypalTransactions(validInserted);
+      matched = await matchPaypalTransactions(ids);
     }
 
-    const credits = validInserted.filter((t) => t.ignoreInBudget);
+    const { transactions } = getData();
+    const insertedTxns = transactions.filter((t) => ids.includes(t.id));
+    const credits = insertedTxns.filter((t) => t.ignoreInBudget);
     let refundCandidateCount = 0;
     if (credits.length > 0) {
-      const candidates = await findRefundCandidates(credits);
+      const creditIds = credits.map((t) => t.id);
+      const candidates = findRefundCandidates(creditIds);
       if (candidates.length > 0) {
         setRefundPrompts(candidates);
         refundCandidateCount = candidates.length;
@@ -162,30 +175,25 @@ export function ImportView() {
         ...ruleLines.map((l) => l.categoryName),
       ]);
 
+      const { categories } = getData();
+      const existingNames = new Set(categories.map((c) => c.name.toLowerCase()));
       for (const name of catNames) {
-        const existing = await db.categories.where('name').equalsIgnoreCase(name).first();
-        if (!existing) await db.categories.add({ name });
+        if (!existingNames.has(name.toLowerCase())) {
+          await addCategory(name);
+        }
       }
 
-      const allCats = await db.categories.toArray();
-      const catMap = new Map(allCats.map((c) => [c.name.toLowerCase(), c.id!]));
+      const { categories: allCats } = getData();
+      const catMap = new Map(allCats.map((c) => [c.name.toLowerCase(), c.id]));
 
       const budgets = toBudgets(budgetLines, xlsxMonth, catMap);
       for (const b of budgets) {
-        const existing = await db.budgets
-          .where('[month+categoryId]')
-          .equals([b.month, b.categoryId])
-          .first();
-        if (existing) {
-          await db.budgets.update(existing.id!, { targetAmount: b.targetAmount });
-        } else {
-          await db.budgets.add(b as import('../db').Budget);
-        }
+        await upsertBudget(b.month, b.categoryId, b.targetAmount);
       }
 
       const rules = toRules(ruleLines, catMap);
       for (const r of rules) {
-        await db.categoryRules.add(r as import('../db').CategoryRule);
+        await addCategoryRule(r);
       }
 
       setResult({
@@ -221,6 +229,12 @@ export function ImportView() {
   return (
     <div>
       <h1 className="view-title">Import</h1>
+
+      {latestDate && (
+        <div className="card" style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: 'var(--bg-accent, #1e293b)', fontWeight: 600 }}>
+          Most recent transaction in system: <span style={{ color: '#3b82f6' }}>{latestDate}</span>
+        </div>
+      )}
 
       <div className="card">
         <div className="row" style={{ marginBottom: '0.75rem' }}>

@@ -1,63 +1,71 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react';
-import { db, type CategoryRule } from '../db';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  getData,
+  subscribe,
+  getFilePath,
+  addCategory,
+  deleteCategory,
+  addCategoryRule,
+  deleteCategoryRule,
+  addRecurringTemplate,
+  deleteRecurringTemplate,
+  updateRecurringTemplate,
+  type Category,
+  type CategoryRule,
+  type RecurringTemplate,
+} from '../db';
 import { recategorizeAll } from '../logic/categorize';
-import { encrypt, decrypt } from '../crypto';
 
 export function SettingsView() {
-  const [categories, setCategories] = useState<import('../db').Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [rules, setRules] = useState<(CategoryRule & { catName: string })[]>([]);
+  const [templates, setTemplates] = useState<RecurringTemplate[]>([]);
   const [newCat, setNewCat] = useState('');
   const [newPattern, setNewPattern] = useState('');
   const [newMatchType, setNewMatchType] = useState<'exact' | 'contains'>('contains');
   const [newRuleCat, setNewRuleCat] = useState<number | ''>('');
-  const [passphrase, setPassphrase] = useState('');
-  const [syncStatus, setSyncStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [rev, setRev] = useState(0);
+
+  const [tmplDescriptor, setTmplDescriptor] = useState('');
+  const [tmplAmount, setTmplAmount] = useState('');
+  const [tmplInstrument, setTmplInstrument] = useState('');
+  const [tmplCategory, setTmplCategory] = useState<number | ''>('');
+  const [tmplDay, setTmplDay] = useState('1');
+
+  const compute = useCallback(() => {
+    const { categories: cats, categoryRules: allRules, recurringTemplates } = getData();
+    setCategories(cats);
+    const catMap = new Map(cats.map((c) => [c.id, c.name]));
+    setRules(allRules.map((r) => ({ ...r, catName: catMap.get(r.categoryId) ?? '?' })));
+    setTemplates(recurringTemplates);
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const cats = await db.categories.toArray();
-      if (cancelled) return;
-      setCategories(cats);
-      const catMap = new Map(cats.map((c) => [c.id!, c.name]));
-      const allRules = await db.categoryRules.toArray();
-      if (!cancelled) setRules(allRules.map((r) => ({ ...r, catName: catMap.get(r.categoryId) ?? '?' })));
-    })();
-    return () => { cancelled = true; };
-  }, [rev]);
+    compute();
+    return subscribe(compute);
+  }, [compute]);
 
-  function reload() { setRev((r) => r + 1); }
-
-  async function addCategory() {
+  async function handleAddCategory() {
     if (!newCat.trim()) return;
-    await db.categories.add({ name: newCat.trim() });
+    await addCategory(newCat.trim());
     setNewCat('');
-    reload();
   }
 
-  async function deleteCategory(id: number) {
-    await db.categories.delete(id);
-    await db.categoryRules.where('categoryId').equals(id).delete();
-    reload();
+  async function handleDeleteCategory(id: number) {
+    await deleteCategory(id);
   }
 
-  async function addRule() {
+  async function handleAddRule() {
     if (!newPattern || !newRuleCat) return;
-    await db.categoryRules.add({
+    await addCategoryRule({
       matchType: newMatchType,
       pattern: newPattern.toLowerCase(),
       categoryId: newRuleCat as number,
     });
     setNewPattern('');
-    reload();
   }
 
-  async function deleteRule(id: number) {
-    await db.categoryRules.delete(id);
-    reload();
+  async function handleDeleteRule(id: number) {
+    await deleteCategoryRule(id);
   }
 
   async function runRecategorize() {
@@ -65,90 +73,42 @@ export function SettingsView() {
     alert(`Re-categorized ${count} transactions.`);
   }
 
-  function clearSyncStatus() {
-    setTimeout(() => setSyncStatus(null), 4000);
+  async function handleAddTemplate() {
+    if (!tmplDescriptor.trim() || !tmplAmount) return;
+    await addRecurringTemplate({
+      descriptor: tmplDescriptor.trim(),
+      amount: parseFloat(tmplAmount),
+      instrument: tmplInstrument.trim(),
+      categoryId: tmplCategory ? (tmplCategory as number) : null,
+      dayOfMonth: parseInt(tmplDay),
+      active: true,
+    });
+    setTmplDescriptor('');
+    setTmplAmount('');
+    setTmplInstrument('');
+    setTmplCategory('');
+    setTmplDay('1');
   }
 
-  async function handleExport(e: FormEvent) {
-    e.preventDefault();
-    if (!passphrase) return;
-    setBusy(true);
-    try {
-      const data = {
-        categories: await db.categories.toArray(),
-        categoryRules: await db.categoryRules.toArray(),
-        budgets: await db.budgets.toArray(),
-        transactions: await db.transactions.toArray(),
-        transactionSplits: await db.transactionSplits.toArray(),
-        savingsBuckets: await db.savingsBuckets.toArray(),
-        savingsEntries: await db.savingsEntries.toArray(),
-        savingsSchedules: await db.savingsSchedules.toArray(),
-      };
-      const json = JSON.stringify(data);
-      const encrypted = await encrypt(json, passphrase);
-      const blob = new Blob([encrypted], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `budget-full-${new Date().toISOString().split('T')[0]}.budget`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setSyncStatus({ type: 'ok', msg: 'Full backup exported' });
-    } catch {
-      setSyncStatus({ type: 'err', msg: 'Export failed' });
-    } finally {
-      setBusy(false);
-      clearSyncStatus();
-    }
+  async function handleDeleteTemplate(id: number) {
+    await deleteRecurringTemplate(id);
   }
 
-  async function handleImport(e: FormEvent) {
-    e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file || !passphrase) return;
-    setBusy(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const json = await decrypt(buffer, passphrase);
-      const data = JSON.parse(json);
-
-      await db.categories.clear();
-      await db.categoryRules.clear();
-      await db.budgets.clear();
-      await db.transactions.clear();
-      await db.transactionSplits.clear();
-      await db.savingsBuckets.clear();
-      await db.savingsEntries.clear();
-      await db.savingsSchedules.clear();
-
-      const stripId = (obj: Record<string, unknown>) => {
-        const copy = { ...obj };
-        delete copy.id;
-        return copy;
-      };
-      if (data.categories) await db.categories.bulkAdd(data.categories.map(stripId));
-      if (data.categoryRules) await db.categoryRules.bulkAdd(data.categoryRules.map(stripId));
-      if (data.budgets) await db.budgets.bulkAdd(data.budgets.map(stripId));
-      if (data.transactions) await db.transactions.bulkAdd(data.transactions.map(stripId));
-      if (data.transactionSplits) await db.transactionSplits.bulkAdd(data.transactionSplits.map(stripId));
-      if (data.savingsBuckets) await db.savingsBuckets.bulkAdd(data.savingsBuckets.map(stripId));
-      if (data.savingsEntries) await db.savingsEntries.bulkAdd(data.savingsEntries.map(stripId));
-      if (data.savingsSchedules) await db.savingsSchedules.bulkAdd(data.savingsSchedules.map(stripId));
-
-      setSyncStatus({ type: 'ok', msg: 'Full backup restored' });
-      if (fileRef.current) fileRef.current.value = '';
-      window.location.reload();
-    } catch {
-      setSyncStatus({ type: 'err', msg: 'Import failed — wrong passphrase or bad file' });
-    } finally {
-      setBusy(false);
-      clearSyncStatus();
-    }
+  async function handleToggleTemplate(t: RecurringTemplate) {
+    await updateRecurringTemplate(t.id, { active: !t.active });
   }
+
+  const filePath = getFilePath();
 
   return (
     <div>
       <h1 className="view-title">Settings</h1>
+
+      {filePath && (
+        <div className="card" style={{ marginBottom: '1rem', fontSize: '0.8rem', opacity: 0.7 }}>
+          Data file: <code>{filePath}</code>
+        </div>
+      )}
 
       {/* Categories */}
       <div className="section-title">Categories</div>
@@ -156,7 +116,7 @@ export function SettingsView() {
         {categories.map((c) => (
           <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0', borderBottom: '1px solid var(--border-color)' }}>
             <span>{c.name}</span>
-            <button className="btn btn-danger btn-sm" onClick={() => deleteCategory(c.id!)}>
+            <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(c.id)}>
               &times;
             </button>
           </div>
@@ -166,7 +126,7 @@ export function SettingsView() {
           <div className="field">
             <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category" />
           </div>
-          <button className="btn btn-primary" onClick={addCategory}>Add</button>
+          <button className="btn btn-primary" onClick={handleAddCategory}>Add</button>
         </div>
       </div>
 
@@ -183,7 +143,7 @@ export function SettingsView() {
                 <td>{r.pattern}</td>
                 <td><span className="chip">{r.matchType}</span></td>
                 <td>{r.catName}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={() => deleteRule(r.id!)}>&times;</button></td>
+                <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteRule(r.id)}>&times;</button></td>
               </tr>
             ))}
             {rules.length === 0 && <tr><td colSpan={4} className="empty">No rules</td></tr>}
@@ -211,7 +171,7 @@ export function SettingsView() {
               ))}
             </select>
           </div>
-          <button className="btn btn-primary" onClick={addRule}>Add</button>
+          <button className="btn btn-primary" onClick={handleAddRule}>Add</button>
         </div>
 
         <button className="btn btn-ghost" onClick={runRecategorize} style={{ marginTop: '0.5rem' }}>
@@ -219,24 +179,79 @@ export function SettingsView() {
         </button>
       </div>
 
-      {/* Data Sync */}
-      <div className="section-title">Data Sync</div>
-      <div className="card sync-card">
-        <div className="field">
-          <label>Passphrase</label>
-          <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Encryption passphrase" />
+      {/* Recurring Templates */}
+      <div className="section-title">Recurring Templates</div>
+      <div className="card">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Descriptor</th>
+              <th className="num">Amount</th>
+              <th>Instrument</th>
+              <th>Category</th>
+              <th>Day</th>
+              <th>Active</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {templates.map((t) => {
+              const cat = categories.find((c) => c.id === t.categoryId);
+              return (
+                <tr key={t.id}>
+                  <td>{t.descriptor}</td>
+                  <td className="num">${t.amount.toFixed(2)}</td>
+                  <td>{t.instrument}</td>
+                  <td>{cat?.name ?? '—'}</td>
+                  <td>{t.dayOfMonth}</td>
+                  <td>
+                    <button
+                      className={`btn btn-sm ${t.active ? 'btn-success' : 'btn-ghost'}`}
+                      onClick={() => handleToggleTemplate(t)}
+                    >
+                      {t.active ? 'Active' : 'Paused'}
+                    </button>
+                  </td>
+                  <td>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteTemplate(t.id)}>&times;</button>
+                  </td>
+                </tr>
+              );
+            })}
+            {templates.length === 0 && <tr><td colSpan={7} className="empty">No recurring templates</td></tr>}
+          </tbody>
+        </table>
+
+        <div className="row" style={{ marginTop: '0.5rem' }}>
+          <div className="field">
+            <label>Descriptor</label>
+            <input value={tmplDescriptor} onChange={(e) => setTmplDescriptor(e.target.value)} placeholder="Netflix, etc." />
+          </div>
+          <div className="field">
+            <label>Amount</label>
+            <input type="number" value={tmplAmount} onChange={(e) => setTmplAmount(e.target.value)} placeholder="0" />
+          </div>
+          <div className="field">
+            <label>Instrument</label>
+            <input value={tmplInstrument} onChange={(e) => setTmplInstrument(e.target.value)} placeholder="Visa, etc." />
+          </div>
         </div>
-        <div className="sync-actions">
-          <button className="btn btn-primary" onClick={handleExport} disabled={busy || !passphrase}>
-            Export Full Backup
-          </button>
-          <form className="import-form" onSubmit={handleImport}>
-            <input ref={fileRef} type="file" accept=".budget" id="sync-file" className="file-input" />
-            <label htmlFor="sync-file" className="btn btn-ghost file-label">Choose file</label>
-            <button type="submit" className="btn btn-ghost" disabled={busy || !passphrase}>Import</button>
-          </form>
+        <div className="row">
+          <div className="field">
+            <label>Category</label>
+            <select value={tmplCategory} onChange={(e) => setTmplCategory(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">None</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Day of month</label>
+            <input type="number" min="1" max="31" value={tmplDay} onChange={(e) => setTmplDay(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" onClick={handleAddTemplate} style={{ alignSelf: 'flex-end' }}>Add Template</button>
         </div>
-        {syncStatus && <p className={`sync-status ${syncStatus.type}`}>{syncStatus.msg}</p>}
       </div>
     </div>
   );

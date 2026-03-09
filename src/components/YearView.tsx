@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { db, type Category } from '../db';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { getData, subscribe, type Category } from '../db';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -34,63 +34,57 @@ export function YearView() {
   const [scope, setScope] = useState<'overall' | 'categories'>('overall');
   const chartRef = useRef(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const compute = useCallback(() => {
+    const { categories: cats, budgets: allBudgets, transactions: allTxns, transactionSplits: allSplits } = getData();
+    setCategories(cats);
 
-    (async () => {
-      const cats = await db.categories.toArray();
-      if (cancelled) return;
-      setCategories(cats);
-      const months = monthsOfYear(year);
+    const months = monthsOfYear(year);
 
-      const allBudgets = await db.budgets.toArray();
-      const allTxns = await db.transactions.toArray();
-      const allSplits = await db.transactionSplits.toArray();
+    const splitsByTxn = new Map<number, typeof allSplits>();
+    for (const s of allSplits) {
+      const arr = splitsByTxn.get(s.transactionId) ?? [];
+      arr.push(s);
+      splitsByTxn.set(s.transactionId, arr);
+    }
 
-      const splitsByTxn = new Map<number, typeof allSplits>();
-      for (const s of allSplits) {
-        const arr = splitsByTxn.get(s.transactionId) ?? [];
-        arr.push(s);
-        splitsByTxn.set(s.transactionId, arr);
+    const filterCats = scope === 'categories' && selectedCats.length > 0
+      ? new Set(selectedCats)
+      : null;
+
+    const result: MonthData[] = months.map((m) => {
+      const mBudgets = allBudgets.filter((b) =>
+        b.month === m && (!filterCats || filterCats.has(b.categoryId))
+      );
+      const planned = mBudgets.reduce((s, b) => s + b.targetAmount, 0);
+
+      const mTxns = allTxns.filter((t) =>
+        t.txnDate.startsWith(m) && !t.ignoreInBudget
+      );
+
+      let actual = 0;
+      for (const t of mTxns) {
+        const splits = splitsByTxn.get(t.id);
+        if (splits && splits.length > 0) {
+          for (const s of splits) {
+            if (!filterCats || filterCats.has(s.categoryId)) {
+              actual += s.amount;
+            }
+          }
+        } else if (t.categoryId && (!filterCats || filterCats.has(t.categoryId))) {
+          actual += t.amount;
+        }
       }
 
-      const filterCats = scope === 'categories' && selectedCats.length > 0
-        ? new Set(selectedCats)
-        : null;
+      return { month: m, planned, actual };
+    });
 
-      const result: MonthData[] = months.map((m) => {
-        const mBudgets = allBudgets.filter((b) =>
-          b.month === m && (!filterCats || filterCats.has(b.categoryId))
-        );
-        const planned = mBudgets.reduce((s, b) => s + b.targetAmount, 0);
-
-        const mTxns = allTxns.filter((t) =>
-          t.txnDate.startsWith(m) && !t.ignoreInBudget
-        );
-
-        let actual = 0;
-        for (const t of mTxns) {
-          if (t.id === undefined) continue;
-          const splits = splitsByTxn.get(t.id);
-          if (splits && splits.length > 0) {
-            for (const s of splits) {
-              if (!filterCats || filterCats.has(s.categoryId)) {
-                actual += s.amount;
-              }
-            }
-          } else if (t.categoryId && (!filterCats || filterCats.has(t.categoryId))) {
-            actual += t.amount;
-          }
-        }
-
-        return { month: m, planned, actual };
-      });
-
-      if (!cancelled) setData(result);
-    })();
-
-    return () => { cancelled = true; };
+    setData(result);
   }, [year, scope, selectedCats]);
+
+  useEffect(() => {
+    compute();
+    return subscribe(compute);
+  }, [compute]);
 
   const monthLabels = data.map((d) => d.month.split('-')[1]);
 
@@ -178,8 +172,8 @@ export function YearView() {
           {categories.map((c) => (
             <button
               key={c.id}
-              className={`btn btn-sm ${selectedCats.includes(c.id!) ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => toggleCat(c.id!)}
+              className={`btn btn-sm ${selectedCats.includes(c.id) ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => toggleCat(c.id)}
             >
               {c.name}
             </button>

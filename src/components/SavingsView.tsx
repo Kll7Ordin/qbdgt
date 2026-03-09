@@ -1,5 +1,16 @@
-import { useState, useEffect } from 'react';
-import { db, type SavingsBucket, type SavingsEntry, type SavingsSchedule } from '../db';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  getData,
+  subscribe,
+  addSavingsBucket,
+  deleteSavingsBucket,
+  addSavingsEntry,
+  addSavingsSchedule,
+  updateSavingsSchedule,
+  type SavingsBucket,
+  type SavingsEntry,
+  type SavingsSchedule,
+} from '../db';
 import { processSchedules, getBucketBalance } from '../logic/savings';
 
 interface BucketData {
@@ -27,54 +38,45 @@ export function SavingsView() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [rev, setRev] = useState(0);
+
+  const [initialized, setInitialized] = useState(false);
+
+  const compute = useCallback(() => {
+    const { savingsBuckets, savingsEntries, savingsSchedules } = getData();
+    const result: BucketData[] = savingsBuckets.map((b) => ({
+      bucket: b,
+      balance: getBucketBalance(b.id),
+      entries: savingsEntries.filter((e) => e.bucketId === b.id).reverse(),
+      schedules: savingsSchedules.filter((s) => s.bucketId === b.id),
+    }));
+    setBuckets(result);
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    processSchedules().then(() => {
+      compute();
+      setInitialized(true);
+    });
+    return subscribe(compute);
+  }, [compute]);
 
-    (async () => {
-      await processSchedules();
-      const allBuckets = await db.savingsBuckets.toArray();
-      const data: BucketData[] = [];
-      for (const b of allBuckets) {
-        if (b.id === undefined) continue;
-        const balance = await getBucketBalance(b.id);
-        const entries = await db.savingsEntries
-          .where('bucketId').equals(b.id)
-          .reverse()
-          .toArray();
-        const schedules = await db.savingsSchedules
-          .where('bucketId').equals(b.id)
-          .toArray();
-        data.push({ bucket: b, balance, entries, schedules });
-      }
-      if (!cancelled) setBuckets(data);
-    })();
+  if (!initialized) return null;
 
-    return () => { cancelled = true; };
-  }, [rev]);
-
-  function reload() { setRev((r) => r + 1); }
-
-  async function addBucket() {
+  async function handleAddBucket() {
     if (!newName.trim()) return;
-    await db.savingsBuckets.add({ name: newName.trim() });
+    await addSavingsBucket(newName.trim());
     setNewName('');
-    reload();
   }
 
-  async function deleteBucket(id: number) {
-    await db.savingsEntries.where('bucketId').equals(id).delete();
-    await db.savingsSchedules.where('bucketId').equals(id).delete();
-    await db.savingsBuckets.delete(id);
-    reload();
+  async function handleDeleteBucket(id: number) {
+    await deleteSavingsBucket(id);
   }
 
-  async function addEntry() {
+  async function handleAddEntry() {
     if (entryBucket === null || !entryAmount) return;
     const amt = parseFloat(entryAmount);
     if (isNaN(amt) || amt <= 0) return;
-    await db.savingsEntries.add({
+    await addSavingsEntry({
       entryDate: entryDate,
       bucketId: entryBucket,
       amount: entryType === 'deposit' ? amt : -amt,
@@ -85,12 +87,11 @@ export function SavingsView() {
     setEntryAmount('');
     setEntryNotes('');
     setEntryBucket(null);
-    reload();
   }
 
-  async function addSchedule() {
+  async function handleAddSchedule() {
     if (schedBucket === null || !schedAmount) return;
-    await db.savingsSchedules.add({
+    await addSavingsSchedule({
       bucketId: schedBucket,
       dayOfMonth: parseInt(schedDay),
       amount: parseFloat(schedAmount),
@@ -99,12 +100,10 @@ export function SavingsView() {
     });
     setSchedAmount('');
     setSchedBucket(null);
-    reload();
   }
 
-  async function toggleSchedule(id: number, active: boolean) {
-    await db.savingsSchedules.update(id, { active: !active });
-    reload();
+  async function handleToggleSchedule(id: number, active: boolean) {
+    await updateSavingsSchedule(id, { active: !active });
   }
 
   return (
@@ -117,7 +116,7 @@ export function SavingsView() {
         <div className="bucket-card" key={bucket.id}>
           <div
             className="bucket-header"
-            onClick={() => setExpanded(expanded === bucket.id! ? null : bucket.id!)}
+            onClick={() => setExpanded(expanded === bucket.id ? null : bucket.id)}
           >
             <span className="bucket-name">{bucket.name}</span>
             <span className={`bucket-balance ${balance >= 0 ? 'positive' : 'negative'}`}>
@@ -135,7 +134,7 @@ export function SavingsView() {
                       <span>${s.amount} on day {s.dayOfMonth} (from {s.startMonth})</span>
                       <button
                         className={`btn btn-sm ${s.active ? 'btn-success' : 'btn-ghost'}`}
-                        onClick={() => toggleSchedule(s.id!, s.active)}
+                        onClick={() => handleToggleSchedule(s.id, s.active)}
                       >
                         {s.active ? 'Active' : 'Paused'}
                       </button>
@@ -174,7 +173,7 @@ export function SavingsView() {
               <button
                 className="btn btn-danger btn-sm"
                 style={{ marginTop: '0.5rem' }}
-                onClick={() => deleteBucket(bucket.id!)}
+                onClick={() => handleDeleteBucket(bucket.id)}
               >
                 Delete bucket
               </button>
@@ -189,7 +188,7 @@ export function SavingsView() {
           <div className="field">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Bucket name" />
           </div>
-          <button className="btn btn-primary" onClick={addBucket}>Add</button>
+          <button className="btn btn-primary" onClick={handleAddBucket}>Add</button>
         </div>
       </div>
 
@@ -229,7 +228,7 @@ export function SavingsView() {
               <label>Notes</label>
               <input value={entryNotes} onChange={(e) => setEntryNotes(e.target.value)} placeholder="Optional notes" />
             </div>
-            <button className="btn btn-primary" onClick={addEntry} style={{ marginTop: '0.5rem' }}>Add Entry</button>
+            <button className="btn btn-primary" onClick={handleAddEntry} style={{ marginTop: '0.5rem' }}>Add Entry</button>
           </div>
 
           <div className="card">
@@ -259,7 +258,7 @@ export function SavingsView() {
                 <input type="month" value={schedStart} onChange={(e) => setSchedStart(e.target.value)} />
               </div>
             </div>
-            <button className="btn btn-primary" onClick={addSchedule} style={{ marginTop: '0.5rem' }}>Add Schedule</button>
+            <button className="btn btn-primary" onClick={handleAddSchedule} style={{ marginTop: '0.5rem' }}>Add Schedule</button>
           </div>
         </>
       )}
