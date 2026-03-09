@@ -12,21 +12,8 @@
 - The current encrypted export format (AES-256-GCM + PBKDF2) can be reused as the file format.
 - On first run with no file, the app creates a new one at the chosen location.
 - Conflict handling: if the file was modified externally (edited on another device since last load), warn before overwriting.
-
-## Pending credit card transactions
-- Pending transactions in bank CSV imports should be ignored (not inserted).
-- Detect pending status from the CSV data and skip those rows during parsing.
-
-## Most recent uploaded transaction timestamp
-- On the Import screen, clearly display the most recent transaction timestamp that was previously uploaded.
-- This helps the user know where their data left off before importing new files.
-
-## Recurring transaction templates
-- Allow defining recurring expected transactions (rent, subscriptions, phone bill, etc.).
-- Each template: descriptor, amount, instrument, category, frequency (monthly), expected day of month.
-- App auto-generates expected transactions each month (idempotent, like savings schedules).
-- Budget view could show "expected" vs "actual" for recurring items.
-- Reduces manual entry for predictable expenses.
+- The file should be replaceable with an older version without issue (rollback by file swap).
+- The underlying data format (JSON) should be readable by another program with AI help if needed.
 
 ## Copy last month's budget
 - **Implement now.**
@@ -35,11 +22,44 @@
 - Only copies if the current month has no budget items yet (or ask to overwrite).
 - Saves the user from manually re-adding every category and target each month.
 
-## Categorization UX: unified one-off vs rule flow
-- Currently: category dropdown = silent one-off, "R" button = rule creation. These are separate and the distinction isn't obvious.
-- When a user categorizes an uncategorized transaction for the first time (via the dropdown), prompt them inline:
-  - "Just this one" (one-off, current behavior)
-  - "All transactions matching [full descriptor]" (exact rule)
-  - "All transactions containing [editable partial descriptor]" (contains rule)
-- This makes the rule system discoverable without needing to know about the "R" button.
-- The "R" button can remain as a power-user shortcut for editing/creating rules from already-categorized transactions.
+## Pending credit card transactions
+- **Implement now.**
+- Pending transactions in bank CSV imports should be ignored (not inserted).
+- Detect pending status from the CSV data and skip those rows during parsing.
+
+## Most recent uploaded transaction timestamp
+- **Implement now.**
+- On the Import screen, clearly display the most recent transaction timestamp that was previously uploaded.
+- This helps the user know where their data left off before importing new files.
+
+## Recurring transaction templates
+- **Implement now.**
+- Allow defining recurring expected transactions (rent, subscriptions, phone bill, etc.).
+- Each template: descriptor, amount, instrument, category, frequency (monthly), expected day of month.
+- App auto-generates expected transactions each month (idempotent, like savings schedules).
+- Budget view could show "expected" vs "actual" for recurring items.
+- Reduces manual entry for predictable expenses.
+
+## Categorization UX: inline rule creation
+- **Implement now.**
+- Do NOT prompt on every transaction — that would be annoying.
+- Instead, after assigning a category via the dropdown, show a small non-blocking button (e.g. "Make rule") next to the dropdown.
+- Clicking that button lets the user choose: exact match or contains match with an editable pattern.
+- Flow stays fast for one-offs (just pick and move on), with the rule option always accessible but never forced.
+- The "R" button can remain as a power-user shortcut.
+
+## Desktop only
+- **Implement now.**
+- Drop the mobile/PWA requirement. This is a desktop-only app (Linux Mint).
+- This simplifies the architecture — no service worker, no installability constraints.
+- The hard requirement is that all data lives in a file on the local filesystem that can be copied, backed up, and replaced with an older version.
+
+---
+
+# Backlog
+
+## Multi-currency support
+- Transactions may arrive in different currencies (CAD, USD, EUR).
+- Add a currency field to transactions.
+- Display currency alongside amounts.
+- No conversion logic needed initially — just track and display which currency each amount is in.
