@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import {
   getData,
   subscribe,
@@ -10,16 +10,17 @@ import {
   addRecurringTemplate,
   deleteRecurringTemplate,
   updateRecurringTemplate,
-  type Category,
-  type CategoryRule,
   type RecurringTemplate,
 } from '../db';
 import { recategorizeAll } from '../logic/categorize';
 
 export function SettingsView() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [rules, setRules] = useState<(CategoryRule & { catName: string })[]>([]);
-  const [templates, setTemplates] = useState<RecurringTemplate[]>([]);
+  const data = useSyncExternalStore(subscribe, getData);
+  const categories = data.categories;
+  const catMap = new Map(categories.map((c) => [c.id, c.name]));
+  const rules = data.categoryRules.map((r) => ({ ...r, catName: catMap.get(r.categoryId) ?? '?' }));
+  const templates = data.recurringTemplates;
+
   const [newCat, setNewCat] = useState('');
   const [newPattern, setNewPattern] = useState('');
   const [newMatchType, setNewMatchType] = useState<'exact' | 'contains'>('contains');
@@ -30,19 +31,6 @@ export function SettingsView() {
   const [tmplInstrument, setTmplInstrument] = useState('');
   const [tmplCategory, setTmplCategory] = useState<number | ''>('');
   const [tmplDay, setTmplDay] = useState('1');
-
-  const compute = useCallback(() => {
-    const { categories: cats, categoryRules: allRules, recurringTemplates } = getData();
-    setCategories(cats);
-    const catMap = new Map(cats.map((c) => [c.id, c.name]));
-    setRules(allRules.map((r) => ({ ...r, catName: catMap.get(r.categoryId) ?? '?' })));
-    setTemplates(recurringTemplates);
-  }, []);
-
-  useEffect(() => {
-    compute();
-    return subscribe(compute);
-  }, [compute]);
 
   async function handleAddCategory() {
     if (!newCat.trim()) return;

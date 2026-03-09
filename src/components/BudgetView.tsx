@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import Dexie from 'dexie';
-import { db, type Category, type TransactionSplit } from '../db';
+import { getData, subscribe, upsertBudget, deleteBudget, type Category, type TransactionSplit } from '../db';
 
 function currentMonth(): string {
   const d = new Date();
@@ -28,6 +27,74 @@ interface BudgetRow {
   avgDiff: number;
 }
 
+function buildRows(month: string, categories: Category[]): BudgetRow[] {
+  const d = getData();
+
+  const budgets = d.budgets.filter((b) => b.month === month);
+
+  const prev3 = prevMonths(month, 3);
+  const monthStart = `${month}-01`;
+  const monthEnd = `${month}-31`;
+
+  const txns = d.transactions.filter(
+    (t) => t.txnDate >= monthStart && t.txnDate <= monthEnd,
+  );
+
+  const splitsByTxn = new Map<number, TransactionSplit[]>();
+  for (const s of d.transactionSplits) {
+    const arr = splitsByTxn.get(s.transactionId) ?? [];
+    arr.push(s);
+    splitsByTxn.set(s.transactionId, arr);
+  }
+
+  const spendByCategory = new Map<number, number>();
+  for (const t of txns) {
+    if (t.ignoreInBudget) continue;
+    const txnSplits = splitsByTxn.get(t.id);
+    if (txnSplits && txnSplits.length > 0) {
+      for (const s of txnSplits) {
+        spendByCategory.set(s.categoryId, (spendByCategory.get(s.categoryId) ?? 0) + s.amount);
+      }
+    } else if (t.categoryId) {
+      spendByCategory.set(t.categoryId, (spendByCategory.get(t.categoryId) ?? 0) + t.amount);
+    }
+  }
+
+  const avg3Map = new Map<number, number>();
+  for (const pm of prev3) {
+    const pmStart = `${pm}-01`;
+    const pmEnd = `${pm}-31`;
+    const pmTxns = d.transactions.filter(
+      (t) => t.txnDate >= pmStart && t.txnDate <= pmEnd,
+    );
+    for (const t of pmTxns) {
+      if (t.ignoreInBudget) continue;
+      const txnSplits = splitsByTxn.get(t.id);
+      if (txnSplits && txnSplits.length > 0) {
+        for (const s of txnSplits) {
+          avg3Map.set(s.categoryId, (avg3Map.get(s.categoryId) ?? 0) + s.amount);
+        }
+      } else if (t.categoryId) {
+        avg3Map.set(t.categoryId, (avg3Map.get(t.categoryId) ?? 0) + t.amount);
+      }
+    }
+  }
+
+  const catMap = new Map(categories.map((c) => [c.id, c.name]));
+  return budgets.map((b) => {
+    const spent = spendByCategory.get(b.categoryId) ?? 0;
+    const avg3 = (avg3Map.get(b.categoryId) ?? 0) / Math.max(prev3.length, 1);
+    return {
+      categoryId: b.categoryId,
+      categoryName: catMap.get(b.categoryId) ?? '?',
+      target: b.targetAmount,
+      spent,
+      avg3,
+      avgDiff: avg3 - b.targetAmount,
+    };
+  });
+}
+
 export function BudgetView() {
   const [month, setMonth] = useState(currentMonth());
   const [rows, setRows] = useState<BudgetRow[]>([]);
@@ -36,133 +103,40 @@ export function BudgetView() {
   const [newTarget, setNewTarget] = useState('');
   const [editId, setEditId] = useState<number | null>(null);
   const [editTarget, setEditTarget] = useState('');
-  const [rev, setRev] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const cats = await db.categories.toArray();
-      if (cancelled) return;
-      setCategories(cats);
-
-      const budgets = await db.budgets
-        .where('[month+categoryId]')
-        .between([month, Dexie.minKey], [month, Dexie.maxKey])
-        .toArray();
-
-      const prev3 = prevMonths(month, 3);
-      const monthStart = `${month}-01`;
-      const monthEnd = `${month}-31`;
-
-      const txns = await db.transactions
-        .where('txnDate')
-        .between(monthStart, monthEnd, true, true)
-        .toArray();
-
-      const splits = await db.transactionSplits.toArray();
-      const splitsByTxn = new Map<number, TransactionSplit[]>();
-      for (const s of splits) {
-        const arr = splitsByTxn.get(s.transactionId) ?? [];
-        arr.push(s);
-        splitsByTxn.set(s.transactionId, arr);
-      }
-
-      const spendByCategory = new Map<number, number>();
-      for (const t of txns) {
-        if (t.ignoreInBudget || t.id === undefined) continue;
-        const txnSplits = splitsByTxn.get(t.id);
-        if (txnSplits && txnSplits.length > 0) {
-          for (const s of txnSplits) {
-            spendByCategory.set(s.categoryId, (spendByCategory.get(s.categoryId) ?? 0) + s.amount);
-          }
-        } else if (t.categoryId) {
-          spendByCategory.set(t.categoryId, (spendByCategory.get(t.categoryId) ?? 0) + t.amount);
-        }
-      }
-
-      const avg3Map = new Map<number, number>();
-      for (const pm of prev3) {
-        const pmStart = `${pm}-01`;
-        const pmEnd = `${pm}-31`;
-        const pmTxns = await db.transactions
-          .where('txnDate')
-          .between(pmStart, pmEnd, true, true)
-          .toArray();
-        for (const t of pmTxns) {
-          if (t.ignoreInBudget || t.id === undefined) continue;
-          const txnSplits = splitsByTxn.get(t.id);
-          if (txnSplits && txnSplits.length > 0) {
-            for (const s of txnSplits) {
-              avg3Map.set(s.categoryId, (avg3Map.get(s.categoryId) ?? 0) + s.amount);
-            }
-          } else if (t.categoryId) {
-            avg3Map.set(t.categoryId, (avg3Map.get(t.categoryId) ?? 0) + t.amount);
-          }
-        }
-      }
-
-      const catMap = new Map(cats.map((c) => [c.id!, c.name]));
-      const result: BudgetRow[] = budgets.map((b) => {
-        const spent = spendByCategory.get(b.categoryId) ?? 0;
-        const avg3 = (avg3Map.get(b.categoryId) ?? 0) / Math.max(prev3.length, 1);
-        return {
-          categoryId: b.categoryId,
-          categoryName: catMap.get(b.categoryId) ?? '?',
-          target: b.targetAmount,
-          spent,
-          avg3,
-          avgDiff: avg3 - b.targetAmount,
-        };
-      });
-
-      if (!cancelled) setRows(result);
-    })();
-
-    return () => { cancelled = true; };
-  }, [month, rev]);
-
-  function reload() { setRev((r) => r + 1); }
+    function refresh() {
+      const d = getData();
+      setCategories(d.categories);
+      setRows(buildRows(month, d.categories));
+    }
+    refresh();
+    return subscribe(refresh);
+  }, [month]);
 
   async function addBudgetItem() {
     if (!newCatId || !newTarget) return;
-    const existing = await db.budgets
-      .where('[month+categoryId]')
-      .equals([month, newCatId])
-      .first();
-    if (existing) {
-      await db.budgets.update(existing.id!, { targetAmount: parseFloat(newTarget) });
-    } else {
-      await db.budgets.add({
-        month,
-        categoryId: newCatId as number,
-        targetAmount: parseFloat(newTarget),
-      });
-    }
+    await upsertBudget(month, newCatId as number, parseFloat(newTarget));
     setNewCatId('');
     setNewTarget('');
-    reload();
   }
 
   async function removeBudgetItem(categoryId: number) {
-    const item = await db.budgets
-      .where('[month+categoryId]')
-      .equals([month, categoryId])
-      .first();
-    if (item?.id) await db.budgets.delete(item.id);
-    reload();
+    await deleteBudget(month, categoryId);
   }
 
   async function saveEdit(categoryId: number) {
-    const item = await db.budgets
-      .where('[month+categoryId]')
-      .equals([month, categoryId])
-      .first();
-    if (item?.id) {
-      await db.budgets.update(item.id, { targetAmount: parseFloat(editTarget) });
-    }
+    await upsertBudget(month, categoryId, parseFloat(editTarget));
     setEditId(null);
-    reload();
+  }
+
+  async function copyFromLastMonth() {
+    const [prevMonth] = prevMonths(month, 1);
+    const d = getData();
+    const prevBudgets = d.budgets.filter((b) => b.month === prevMonth);
+    for (const b of prevBudgets) {
+      await upsertBudget(month, b.categoryId, b.targetAmount);
+    }
   }
 
   const totalTarget = rows.reduce((s, r) => s + r.target, 0);
@@ -194,6 +168,13 @@ export function BudgetView() {
       </div>
 
       <div className="card">
+        {rows.length === 0 && (
+          <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
+            <button className="btn btn-primary" onClick={copyFromLastMonth}>
+              Copy from last month
+            </button>
+          </div>
+        )}
         <table className="data-table">
           <thead>
             <tr>

@@ -95,6 +95,7 @@ export function parseAmazonPaste(text: string): Omit<Transaction, 'id'>[] {
         categoryId: null,
         linkedTransactionId: null,
         ignoreInBudget: false,
+        comment: null,
       });
     }
   }

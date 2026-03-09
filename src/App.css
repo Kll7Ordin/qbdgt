@@ -425,3 +425,88 @@
 }
 .sync-status.ok { color: #22c55e; }
 .sync-status.err { color: #ef4444; }
+
+/* File setup screen */
+.file-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  text-align: center;
+}
+
+.file-setup h1 {
+  font-size: 2rem;
+  margin: 0 0 0.5rem;
+}
+
+.setup-desc {
+  opacity: 0.6;
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+}
+
+.setup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 300px;
+}
+
+.setup-error {
+  color: #ef4444;
+  font-size: 0.85rem;
+  margin-top: 1rem;
+}
+
+/* Latest txn banner */
+.latest-banner {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  display: flex;
+  justify-content: space-between;
+}
+
+.latest-banner .label { opacity: 0.5; }
+.latest-banner .value { font-weight: 600; }
+
+/* Comment indicator */
+.comment-icon {
+  cursor: pointer;
+  opacity: 0.4;
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+.comment-icon:hover { opacity: 0.8; }
+.comment-icon.has-comment { opacity: 0.7; }
+
+/* Make rule inline btn */
+.make-rule-btn {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--toggle-bg);
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.5;
+  margin-left: 4px;
+}
+.make-rule-btn:hover { opacity: 0.9; }
+
+/* File path display */
+.file-path {
+  font-size: 0.75rem;
+  opacity: 0.4;
+  word-break: break-all;
+  padding: 0.5rem;
+  background: var(--input-bg);
+  border-radius: 6px;
+  margin-top: 0.5rem;
+}

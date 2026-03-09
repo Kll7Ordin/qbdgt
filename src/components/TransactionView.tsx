@@ -1,5 +1,13 @@
-import { useState, useEffect } from 'react';
-import { db, type Transaction, type Category, type TransactionSplit } from '../db';
+import { useState, useSyncExternalStore } from 'react';
+import {
+  getData,
+  subscribe,
+  addTransaction,
+  updateTransaction,
+  addCategoryRule,
+  type Transaction,
+  type TransactionSplit,
+} from '../db';
 import { bulkCategorizeByDescriptor } from '../logic/categorize';
 import { findRefundCandidates, applyRefundToOriginalMonth, type RefundCandidate } from '../logic/refunds';
 import { SplitEditor } from './SplitEditor';
@@ -9,12 +17,18 @@ function currentMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function useAppData() {
+  const snapshot = useSyncExternalStore(subscribe, getData, getData);
+  return snapshot;
+}
+
 export function TransactionView() {
+  const appData = useAppData();
+  const categories = appData.categories;
+  const allTransactions = appData.transactions;
+  const allSplits = appData.transactionSplits;
+
   const [month, setMonth] = useState(currentMonth());
-  const [txns, setTxns] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [splitsMap, setSplitsMap] = useState<Map<number, TransactionSplit[]>>(new Map());
-  const [uncatCount, setUncatCount] = useState(0);
   const [ruleModal, setRuleModal] = useState<Transaction | null>(null);
   const [rulePattern, setRulePattern] = useState('');
   const [ruleType, setRuleType] = useState<'exact' | 'contains'>('contains');
@@ -22,7 +36,8 @@ export function TransactionView() {
   const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [refundPrompts, setRefundPrompts] = useState<RefundCandidate[]>([]);
-  const [rev, setRev] = useState(0);
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
 
   // Manual transaction form state
   const [mDate, setMDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -31,49 +46,27 @@ export function TransactionView() {
   const [mInstrument, setMInstrument] = useState('');
   const [mCategoryId, setMCategoryId] = useState<number | ''>('');
   const [mType, setMType] = useState<'expense' | 'credit'>('expense');
+  const [mComment, setMComment] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
+  const monthStart = `${month}-01`;
+  const monthEnd = `${month}-31`;
+  const txns = allTransactions
+    .filter((t) => t.txnDate >= monthStart && t.txnDate <= monthEnd)
+    .sort((a, b) => (b.txnDate > a.txnDate ? 1 : b.txnDate < a.txnDate ? -1 : b.id - a.id));
 
-    (async () => {
-      const cats = await db.categories.toArray();
-      if (cancelled) return;
-      setCategories(cats);
+  const splitsMap = new Map<number, TransactionSplit[]>();
+  for (const s of allSplits) {
+    const arr = splitsMap.get(s.transactionId) ?? [];
+    arr.push(s);
+    splitsMap.set(s.transactionId, arr);
+  }
 
-      const monthStart = `${month}-01`;
-      const monthEnd = `${month}-31`;
-      const list = await db.transactions
-        .where('txnDate')
-        .between(monthStart, monthEnd, true, true)
-        .reverse()
-        .toArray();
-      if (cancelled) return;
-      setTxns(list);
-
-      const allSplits = await db.transactionSplits.toArray();
-      const map = new Map<number, TransactionSplit[]>();
-      for (const s of allSplits) {
-        const arr = map.get(s.transactionId) ?? [];
-        arr.push(s);
-        map.set(s.transactionId, arr);
-      }
-      if (cancelled) return;
-      setSplitsMap(map);
-
-      const uc = await db.transactions.filter((t) => t.categoryId === null).count();
-      if (!cancelled) setUncatCount(uc);
-    })();
-
-    return () => { cancelled = true; };
-  }, [month, rev]);
-
-  function reload() { setRev((r) => r + 1); }
+  const uncatCount = allTransactions.filter((t) => t.categoryId === null).length;
 
   const catMap = new Map(categories.map((c) => [c.id!, c.name]));
 
   async function assignCategory(txnId: number, categoryId: number | null) {
-    await db.transactions.update(txnId, { categoryId });
-    reload();
+    await updateTransaction(txnId, { categoryId });
   }
 
   function openRuleModal(txn: Transaction) {
@@ -85,15 +78,28 @@ export function TransactionView() {
 
   async function createRule() {
     if (!rulePattern || !ruleCatId) return;
-    await db.categoryRules.add({
+    await addCategoryRule({
       matchType: ruleType,
       pattern: rulePattern.toLowerCase(),
       categoryId: ruleCatId as number,
     });
     const count = await bulkCategorizeByDescriptor(rulePattern, ruleCatId as number, ruleType);
     setRuleModal(null);
-    reload();
     alert(`Rule created. ${count} transactions categorized.`);
+  }
+
+  function startEditComment(txn: Transaction) {
+    setEditingCommentId(txn.id);
+    setEditingCommentText(txn.comment ?? '');
+  }
+
+  async function saveComment() {
+    if (editingCommentId === null) return;
+    await updateTransaction(editingCommentId, {
+      comment: editingCommentText.trim() || null,
+    });
+    setEditingCommentId(null);
+    setEditingCommentText('');
   }
 
   async function addManualTransaction() {
@@ -111,17 +117,15 @@ export function TransactionView() {
       categoryId: mCategoryId ? (mCategoryId as number) : null,
       linkedTransactionId: null,
       ignoreInBudget: isCredit,
+      comment: mComment.trim() || null,
     };
 
-    const id = await db.transactions.add(txn as Transaction);
+    const id = await addTransaction(txn);
 
     if (isCredit && id !== undefined) {
-      const inserted = await db.transactions.get(id);
-      if (inserted) {
-        const candidates = await findRefundCandidates([inserted]);
-        if (candidates.length > 0) {
-          setRefundPrompts(candidates);
-        }
+      const candidates = findRefundCandidates([id]);
+      if (candidates.length > 0) {
+        setRefundPrompts(candidates);
       }
     }
 
@@ -129,8 +133,8 @@ export function TransactionView() {
     setMDescriptor('');
     setMInstrument('');
     setMCategoryId('');
+    setMComment('');
     setShowAddForm(false);
-    reload();
   }
 
   async function handleRefundChoice(candidate: RefundCandidate, applyToOriginal: boolean) {
@@ -138,7 +142,6 @@ export function TransactionView() {
       await applyRefundToOriginalMonth(candidate.refundTxn.id, candidate.originalTxn.id);
     }
     setRefundPrompts((prev) => prev.filter((r) => r.refundTxn.id !== candidate.refundTxn.id));
-    reload();
   }
 
   return (
@@ -209,6 +212,16 @@ export function TransactionView() {
               </select>
             </div>
           </div>
+          <div className="field">
+            <label>Comment</label>
+            <textarea
+              value={mComment}
+              onChange={(e) => setMComment(e.target.value)}
+              placeholder="Optional comment"
+              rows={2}
+              style={{ resize: 'vertical' }}
+            />
+          </div>
           <button className="btn btn-primary" onClick={addManualTransaction} style={{ marginTop: '0.5rem' }}>
             Add {mType === 'expense' ? 'Expense' : 'Credit'}
           </button>
@@ -236,6 +249,15 @@ export function TransactionView() {
                   <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.descriptor}
                     {t.linkedTransactionId && <span className="chip" style={{ marginLeft: '4px' }}>linked</span>}
+                    {t.comment && (
+                      <span
+                        title={t.comment}
+                        onClick={() => startEditComment(t)}
+                        style={{ marginLeft: '4px', cursor: 'pointer', opacity: 0.6 }}
+                      >
+                        💬
+                      </span>
+                    )}
                   </td>
                   <td>{t.instrument}</td>
                   <td className={`num ${t.ignoreInBudget ? 'positive' : 'negative'}`}>
@@ -260,12 +282,32 @@ export function TransactionView() {
                     )}
                   </td>
                   <td>
+                    {t.categoryId !== null && !(splits && splits.length > 0) && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => openRuleModal(t)}
+                        title="Make rule from this category"
+                        style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem', marginRight: '2px' }}
+                      >
+                        Make rule
+                      </button>
+                    )}
                     <button className="btn btn-ghost btn-sm" onClick={() => openRuleModal(t)} title="Create rule">
                       R
                     </button>
                     <button className="btn btn-ghost btn-sm" onClick={() => setSplitTxn(t)} title="Split" style={{ marginLeft: '2px' }}>
                       S
                     </button>
+                    {!t.comment && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => startEditComment(t)}
+                        title="Add comment"
+                        style={{ marginLeft: '2px' }}
+                      >
+                        💬
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -311,11 +353,33 @@ export function TransactionView() {
         </div>
       )}
 
+      {editingCommentId !== null && (
+        <div className="modal-overlay" onClick={() => setEditingCommentId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Edit Comment</h3>
+            <div className="field">
+              <textarea
+                value={editingCommentText}
+                onChange={(e) => setEditingCommentText(e.target.value)}
+                placeholder="Enter comment..."
+                rows={3}
+                style={{ resize: 'vertical', width: '100%' }}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setEditingCommentId(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveComment}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {splitTxn && (
         <SplitEditor
           transaction={splitTxn}
           categories={categories}
-          onClose={() => { setSplitTxn(null); reload(); }}
+          onClose={() => { setSplitTxn(null); }}
         />
       )}
 

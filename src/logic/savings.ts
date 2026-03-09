@@ -1,4 +1,4 @@
-import { db } from '../db';
+import { getData, addSavingsEntry } from '../db';
 
 function getCurrentMonth(): string {
   const d = new Date();
@@ -6,30 +6,27 @@ function getCurrentMonth(): string {
 }
 
 export async function processSchedules(): Promise<number> {
-  const schedules = await db.savingsSchedules.where('active').equals(1).toArray();
+  const { savingsSchedules, savingsEntries } = getData();
   const currentMonth = getCurrentMonth();
   let created = 0;
 
-  for (const sched of schedules) {
-    if (sched.id === undefined) continue;
+  for (const sched of savingsSchedules) {
+    if (!sched.active) continue;
     if (sched.startMonth > currentMonth) continue;
 
-    const existing = await db.savingsEntries
-      .where('scheduleId')
-      .equals(sched.id)
-      .filter((e) => e.entryDate.startsWith(currentMonth))
-      .count();
-
-    if (existing > 0) continue;
+    const alreadyExists = savingsEntries.some(
+      (e) => e.scheduleId === sched.id && e.entryDate.startsWith(currentMonth),
+    );
+    if (alreadyExists) continue;
 
     const day = Math.min(sched.dayOfMonth, 28);
     const entryDate = `${currentMonth}-${String(day).padStart(2, '0')}`;
 
-    await db.savingsEntries.add({
+    await addSavingsEntry({
       entryDate,
       bucketId: sched.bucketId,
       amount: sched.amount,
-      notes: `Auto-contribution (schedule)`,
+      notes: 'Auto-contribution (schedule)',
       source: 'auto_schedule',
       scheduleId: sched.id,
     });
@@ -39,10 +36,9 @@ export async function processSchedules(): Promise<number> {
   return created;
 }
 
-export async function getBucketBalance(bucketId: number): Promise<number> {
-  const entries = await db.savingsEntries
-    .where('bucketId')
-    .equals(bucketId)
-    .toArray();
-  return entries.reduce((sum, e) => sum + e.amount, 0);
+export function getBucketBalance(bucketId: number): number {
+  const { savingsEntries } = getData();
+  return savingsEntries
+    .filter((e) => e.bucketId === bucketId)
+    .reduce((sum, e) => sum + e.amount, 0);
 }

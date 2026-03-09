@@ -81,6 +81,7 @@ export function parsePaypalPaste(text: string): Omit<Transaction, 'id'>[] {
       categoryId: null,
       linkedTransactionId: null,
       ignoreInBudget: amount < 0,
+      comment: null,
     });
   }
 

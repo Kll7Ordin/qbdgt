@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { getData, subscribe, type Category } from '../db';
+import { useState, useMemo, useRef, useSyncExternalStore } from 'react';
+import { getData, subscribe } from '../db';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -28,16 +28,14 @@ interface MonthData {
 
 export function YearView() {
   const [year, setYear] = useState(new Date().getFullYear());
-  const [data, setData] = useState<MonthData[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCats, setSelectedCats] = useState<number[]>([]);
   const [scope, setScope] = useState<'overall' | 'categories'>('overall');
   const chartRef = useRef(null);
+  const appData = useSyncExternalStore(subscribe, getData);
+  const categories = appData.categories;
 
-  const compute = useCallback(() => {
-    const { categories: cats, budgets: allBudgets, transactions: allTxns, transactionSplits: allSplits } = getData();
-    setCategories(cats);
-
+  const data: MonthData[] = useMemo(() => {
+    const { budgets: allBudgets, transactions: allTxns, transactionSplits: allSplits } = appData;
     const months = monthsOfYear(year);
 
     const splitsByTxn = new Map<number, typeof allSplits>();
@@ -51,7 +49,7 @@ export function YearView() {
       ? new Set(selectedCats)
       : null;
 
-    const result: MonthData[] = months.map((m) => {
+    return months.map((m) => {
       const mBudgets = allBudgets.filter((b) =>
         b.month === m && (!filterCats || filterCats.has(b.categoryId))
       );
@@ -77,14 +75,7 @@ export function YearView() {
 
       return { month: m, planned, actual };
     });
-
-    setData(result);
-  }, [year, scope, selectedCats]);
-
-  useEffect(() => {
-    compute();
-    return subscribe(compute);
-  }, [compute]);
+  }, [appData, year, scope, selectedCats]);
 
   const monthLabels = data.map((d) => d.month.split('-')[1]);
 

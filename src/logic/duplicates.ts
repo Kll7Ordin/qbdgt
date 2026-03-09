@@ -1,4 +1,4 @@
-import { db, type Transaction } from '../db';
+import { getData, type Transaction } from '../db';
 
 function normalize(s: string): string {
   return s.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -9,13 +9,10 @@ export interface DuplicateResult {
   unique: Omit<Transaction, 'id'>[];
 }
 
-export async function detectDuplicates(
-  incoming: Omit<Transaction, 'id'>[],
-): Promise<DuplicateResult> {
-  const existing = await db.transactions.toArray();
-
+export function detectDuplicates(incoming: Omit<Transaction, 'id'>[]): DuplicateResult {
+  const { transactions } = getData();
   const existingSet = new Set(
-    existing.map(
+    transactions.map(
       (t) => `${normalize(t.instrument)}|${t.txnDate}|${normalize(t.descriptor)}|${t.amount}`,
     ),
   );

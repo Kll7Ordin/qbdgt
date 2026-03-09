@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileSetup } from './components/FileSetup';
 import { BudgetView } from './components/BudgetView';
 import { TransactionView } from './components/TransactionView';
 import { YearView } from './components/YearView';
@@ -19,7 +20,12 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 function App() {
+  const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<Tab>('budget');
+
+  if (!ready) {
+    return <FileSetup onReady={() => setReady(true)} />;
+  }
 
   return (
     <div className="app">

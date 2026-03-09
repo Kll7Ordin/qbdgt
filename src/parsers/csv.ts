@@ -77,6 +77,7 @@ export function parseBankCsv(
       categoryId: null,
       linkedTransactionId: null,
       ignoreInBudget: amount < 0,
+      comment: null,
     });
   }
 
