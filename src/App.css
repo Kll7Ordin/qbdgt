@@ -282,3 +282,94 @@
 .empty-hint {
   font-size: 0.85rem;
 }
+
+/* Data Sync */
+.data-sync {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.data-sync h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.sync-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sync-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.import-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-label {
+  cursor: pointer;
+  text-align: center;
+  flex: 1;
+}
+
+.sync-btn {
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.sync-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sync-btn.export {
+  background: #3b82f6;
+  color: #fff;
+  width: 100%;
+}
+
+.sync-btn.import {
+  background: var(--toggle-bg);
+  color: inherit;
+}
+
+.sync-btn:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.sync-status {
+  margin: 0;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.sync-status.ok {
+  color: #22c55e;
+}
+
+.sync-status.err {
+  color: #ef4444;
+}

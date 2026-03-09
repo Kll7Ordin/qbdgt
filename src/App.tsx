@@ -2,6 +2,7 @@ import { useTransactions } from './hooks/useTransactions';
 import { Summary } from './components/Summary';
 import { TransactionForm } from './components/TransactionForm';
 import { TransactionList } from './components/TransactionList';
+import { DataSync } from './components/DataSync';
 import './App.css';
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
           <h2>History</h2>
           <TransactionList transactions={transactions} onDelete={deleteTransaction} />
         </section>
+        <DataSync />
       </main>
     </div>
   );
