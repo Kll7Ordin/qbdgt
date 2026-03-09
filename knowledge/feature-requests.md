@@ -1,5 +1,18 @@
 # Feature Requests
 
+## Encrypted file as single source of truth (replaces browser storage)
+- **Implement now.**
+- The app should NOT use browser IndexedDB as the primary data store.
+- Instead, all data lives in a single encrypted file on the user's filesystem (OneDrive, Dropbox, Syncthing folder, etc.).
+- On app startup (mobile or desktop), the user points to the file location and enters their passphrase. The app decrypts and loads everything into memory.
+- On every save/change, the app writes back to the same encrypted file automatically. No manual export step.
+- The file syncs between devices via whatever cloud/sync service the user already has (OneDrive, Dropbox, Syncthing).
+- Backups are just copies of that file — the user can back it up however they want.
+- This eliminates: forgetting to sync, losing data when clearing browser storage, needing separate export/import flows.
+- The current encrypted export format (AES-256-GCM + PBKDF2) can be reused as the file format.
+- On first run with no file, the app creates a new one at the chosen location.
+- Conflict handling: if the file was modified externally (edited on another device since last load), warn before overwriting.
+
 ## Pending credit card transactions
 - Pending transactions in bank CSV imports should be ignored (not inserted).
 - Detect pending status from the CSV data and skip those rows during parsing.
