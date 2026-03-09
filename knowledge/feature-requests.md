@@ -15,6 +15,13 @@
 - Budget view could show "expected" vs "actual" for recurring items.
 - Reduces manual entry for predictable expenses.
 
+## Copy last month's budget
+- **Implement now.**
+- Add a "Copy from last month" button in the Budget view.
+- Copies all budget line items (category + target amount) from the previous month into the selected month.
+- Only copies if the current month has no budget items yet (or ask to overwrite).
+- Saves the user from manually re-adding every category and target each month.
+
 ## Categorization UX: unified one-off vs rule flow
 - Currently: category dropdown = silent one-off, "R" button = rule creation. These are separate and the distinction isn't obvious.
 - When a user categorizes an uncategorized transaction for the first time (via the dropdown), prompt them inline:
