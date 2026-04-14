@@ -17,11 +17,12 @@ function parsePeriodHeader(line: string): { month: string; year: string } | null
   return { month, year: m[2] };
 }
 
-function parseAmount(raw: string): number | null {
+function parseAmount(raw: string): { value: number; currency: string } | null {
+  const isEur = /€/.test(raw);
   let s = raw.replace(/\u2212/g, '-').replace(/[€$,\s]/g, '');
   s = s.replace(/[^0-9.-]/g, '');
   const n = parseFloat(s);
-  return isNaN(n) ? null : n;
+  return isNaN(n) ? null : { value: n, currency: isEur ? 'EUR' : 'CAD' };
 }
 
 function parseDateLine(line: string, year: string): { date: string; type: string } | null {
@@ -34,6 +35,8 @@ function parseDateLine(line: string, year: string): { date: string; type: string
     type: m[3].trim(),
   };
 }
+
+const EUR_TO_CAD = 1.53;
 
 export function parsePaypalPaste(text: string): Omit<Transaction, 'id'>[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -54,8 +57,8 @@ export function parsePaypalPaste(text: string): Omit<Transaction, 'id'>[] {
     if (i + 2 >= lines.length) { i++; continue; }
 
     const amountRaw = lines[i + 1];
-    const amount = parseAmount(amountRaw);
-    if (amount === null) { i++; continue; }
+    const parsed = parseAmount(amountRaw);
+    if (parsed === null) { i++; continue; }
 
     const dateInfo = parseDateLine(lines[i + 2], currentYear);
     if (!dateInfo) { i++; continue; }
@@ -71,17 +74,25 @@ export function parsePaypalPaste(text: string): Omit<Transaction, 'id'>[] {
     const descParts = ['PayPal', merchant, dateInfo.type];
     if (detail) descParts.push(detail);
 
+    const cadAmount = parsed.currency === 'EUR'
+      ? Math.round(Math.abs(parsed.value) * EUR_TO_CAD * 100) / 100
+      : Math.abs(parsed.value);
+
+    const comment = parsed.currency === 'EUR'
+      ? `Original: €${Math.abs(parsed.value).toFixed(2)} (converted at ~${EUR_TO_CAD} EUR/CAD)`
+      : null;
+
     results.push({
       source: 'paypal_paste',
       sourceRef: 'paste',
       txnDate: dateInfo.date,
-      amount: Math.abs(amount),
+      amount: cadAmount,
       instrument: 'PayPal',
       descriptor: descParts.join(' | '),
       categoryId: null,
       linkedTransactionId: null,
-      ignoreInBudget: amount < 0,
-      comment: null,
+      ignoreInBudget: parsed.value > 0,
+      comment,
     });
   }
 

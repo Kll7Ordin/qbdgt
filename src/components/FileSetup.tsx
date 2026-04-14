@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getLastFilePath, loadFromFile, createNewFile, fileExists } from '../db';
+import { PasswordPrompt } from './PasswordPrompt';
 
 interface Props {
   onReady: () => void;
@@ -9,15 +10,31 @@ interface Props {
 export function FileSetup({ onReady }: Props) {
   const [status, setStatus] = useState('Checking for saved file...');
   const [error, setError] = useState('');
+  const [pendingPath, setPendingPath] = useState<string | null>(null); // path awaiting password
+
+  async function openPath(path: string) {
+    setStatus(`Loading ${path.split('/').pop()}...`);
+    try {
+      await loadFromFile(path);
+      onReady();
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes('FILE_ENCRYPTED')) {
+        setPendingPath(path);
+        setStatus('');
+      } else {
+        setError(msg);
+        setStatus('');
+      }
+    }
+  }
 
   useEffect(() => {
     (async () => {
       try {
         const lastPath = await getLastFilePath();
         if (lastPath && await fileExists(lastPath)) {
-          setStatus(`Loading ${lastPath}...`);
-          await loadFromFile(lastPath);
-          onReady();
+          await openPath(lastPath);
           return;
         }
         setStatus('');
@@ -36,12 +53,10 @@ export function FileSetup({ onReady }: Props) {
         directory: false,
       });
       if (!selected) return;
-      const path = selected;
-      setStatus(`Loading ${path}...`);
-      await loadFromFile(path);
-      onReady();
+      await openPath(selected as string);
     } catch (e) {
       setError(String(e));
+      setStatus('');
     }
   }
 
@@ -54,26 +69,50 @@ export function FileSetup({ onReady }: Props) {
       });
       if (!selected) return;
       const path = typeof selected === 'string' ? selected : selected;
-      setStatus(`Creating ${path}...`);
+      setStatus(`Creating ${path.split('/').pop()}...`);
       await createNewFile(path);
       onReady();
     } catch (e) {
       setError(String(e));
+      setStatus('');
     }
+  }
+
+  // Password prompt for encrypted file
+  if (pendingPath) {
+    return (
+      <PasswordPrompt
+        filePath={pendingPath}
+        onSubmit={async (password) => {
+          await loadFromFile(pendingPath, password);
+          onReady();
+        }}
+        onCancel={() => {
+          setPendingPath(null);
+          setStatus('');
+        }}
+      />
+    );
   }
 
   if (status && !error) {
     return (
       <div className="file-setup">
-        <p>{status}</p>
+        <div className="file-setup-spinner" />
+        <p style={{ opacity: 0.6, fontSize: '0.9rem' }}>{status}</p>
       </div>
     );
   }
 
   return (
     <div className="file-setup">
-      <h1>Budget</h1>
-      <p className="setup-desc">All your data lives in a single JSON file on your computer.</p>
+      <div className="file-setup-logo">
+        <span style={{ fontSize: '2.5rem' }}>💰</span>
+      </div>
+      <h1 className="file-setup-title">Budget</h1>
+      <p className="setup-desc">
+        Your data lives in a single file on your computer — no cloud, no account required.
+      </p>
 
       <div className="setup-actions">
         <button className="btn btn-primary" onClick={handleOpen}>

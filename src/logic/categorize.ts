@@ -16,9 +16,11 @@ export function categorizeTransactionsInPlace(txns: Omit<Transaction, 'id'>[]): 
   for (const txn of txns) {
     if (txn.categoryId) continue;
     const norm = normalize(txn.descriptor);
-    const exactMatch = exact.find((r) => normalize(r.pattern) === norm);
+    const amountMatch = (r: CategoryRule) =>
+      r.amountMatch == null || Math.abs((r.amountMatch ?? 0) - txn.amount) < 0.01;
+    const exactMatch = exact.find((r) => normalize(r.pattern) === norm && amountMatch(r));
     if (exactMatch) { txn.categoryId = exactMatch.categoryId; continue; }
-    const containsMatch = contains.find((r) => norm.includes(normalize(r.pattern)));
+    const containsMatch = contains.find((r) => norm.includes(normalize(r.pattern)) && amountMatch(r));
     if (containsMatch) { txn.categoryId = containsMatch.categoryId; }
   }
 }
@@ -33,12 +35,14 @@ export async function recategorizeAll(): Promise<number> {
     .sort((a, b) => b.pattern.length - a.pattern.length);
 
   let count = 0;
+  const amountMatch = (r: CategoryRule, txn: Transaction) =>
+    r.amountMatch == null || Math.abs((r.amountMatch ?? 0) - txn.amount) < 0.01;
   for (const txn of transactions) {
     if (txn.categoryId !== null) continue;
     const norm = normalize(txn.descriptor);
     let matched: CategoryRule | undefined;
-    matched = exact.find((r) => normalize(r.pattern) === norm);
-    if (!matched) matched = contains.find((r) => norm.includes(normalize(r.pattern)));
+    matched = exact.find((r) => normalize(r.pattern) === norm && amountMatch(r, txn));
+    if (!matched) matched = contains.find((r) => norm.includes(normalize(r.pattern)) && amountMatch(r, txn));
     if (matched) {
       txn.categoryId = matched.categoryId;
       count++;
@@ -52,13 +56,16 @@ export async function bulkCategorizeByDescriptor(
   pattern: string,
   categoryId: number,
   matchType: 'exact' | 'contains',
+  amount?: number | null,
 ): Promise<number> {
   const { transactions } = getData();
   const norm = normalize(pattern);
   let count = 0;
   for (const txn of transactions) {
     const txnNorm = normalize(txn.descriptor);
-    const isMatch = matchType === 'exact' ? txnNorm === norm : txnNorm.includes(norm);
+    const descMatch = matchType === 'exact' ? txnNorm === norm : txnNorm.includes(norm);
+    const amountOk = amount == null || Math.abs(amount - txn.amount) < 0.01;
+    const isMatch = descMatch && amountOk;
     if (isMatch) {
       txn.categoryId = categoryId;
       count++;
@@ -72,7 +79,8 @@ export async function createRuleAndApply(
   pattern: string,
   categoryId: number,
   matchType: 'exact' | 'contains',
+  amount?: number | null,
 ): Promise<number> {
-  await addCategoryRule({ matchType, pattern: pattern.toLowerCase(), categoryId });
-  return bulkCategorizeByDescriptor(pattern, categoryId, matchType);
+  await addCategoryRule({ matchType, pattern: pattern.toLowerCase(), categoryId, amountMatch: amount ?? null });
+  return bulkCategorizeByDescriptor(pattern, categoryId, matchType, amount);
 }

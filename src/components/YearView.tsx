@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useSyncExternalStore } from 'react';
 import { getData, subscribe } from '../db';
+import { INCOME_CATEGORY_NAMES } from '../seed';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,6 +12,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { formatAmount } from '../utils/format';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -24,6 +26,8 @@ interface MonthData {
   month: string;
   planned: number;
   actual: number;
+  income: number;
+  savings: number; // Occasional group spending
 }
 
 export function YearView() {
@@ -49,35 +53,83 @@ export function YearView() {
       ? new Set(selectedCats)
       : null;
 
+    // Income categories
+    const incomeCatIds = new Set(
+      categories
+        .filter((c) => c.isIncome || INCOME_CATEGORY_NAMES.has(c.name))
+        .map((c) => c.id),
+    );
+
+    // Occasional group categories (Savings spending — excluded from regular Actual)
+    const occasionalGroupId = appData.budgetGroups?.find((g) => g.name === 'Occasional')?.id;
+    const occasionalCatIds = new Set(
+      occasionalGroupId != null
+        ? allBudgets.filter((b) => b.groupId === occasionalGroupId).map((b) => b.categoryId)
+        : [],
+    );
+
     return months.map((m) => {
       const mBudgets = allBudgets.filter((b) =>
         b.month === m && (!filterCats || filterCats.has(b.categoryId))
       );
-      const planned = mBudgets.reduce((s, b) => s + b.targetAmount, 0);
-
-      const mTxns = allTxns.filter((t) =>
-        t.txnDate.startsWith(m) && !t.ignoreInBudget
+      const budgetedExpenseCatIds = new Set(
+        mBudgets.filter((b) => !incomeCatIds.has(b.categoryId)).map((b) => b.categoryId)
       );
+      // Planned excludes Occasional (savings spending) so variance reflects regular budget
+      const planned = mBudgets
+        .filter((b) => !incomeCatIds.has(b.categoryId) && !occasionalCatIds.has(b.categoryId))
+        .reduce((s, b) => s + b.targetAmount, 0);
 
       let actual = 0;
-      for (const t of mTxns) {
+      let income = 0;
+      let savings = 0;
+      for (const t of allTxns) {
         const splits = splitsByTxn.get(t.id);
         if (splits && splits.length > 0) {
           for (const s of splits) {
-            if (!filterCats || filterCats.has(s.categoryId)) {
-              actual += s.amount;
+            const effectiveDate = s.txnDate ?? t.txnDate;
+            if (!effectiveDate.startsWith(m)) continue;
+            if (incomeCatIds.has(s.categoryId)) {
+              if (t.ignoreInBudget) income += s.amount;
+            } else if (budgetedExpenseCatIds.has(s.categoryId)) {
+              if (occasionalCatIds.has(s.categoryId)) {
+                if (t.ignoreInBudget) savings -= s.amount;
+                else savings += s.amount;
+              } else if (t.ignoreInBudget) {
+                actual -= s.amount;
+              } else {
+                actual += s.amount;
+              }
             }
           }
-        } else if (t.categoryId && (!filterCats || filterCats.has(t.categoryId))) {
-          actual += t.amount;
+        } else if (t.categoryId) {
+          if (!t.txnDate.startsWith(m)) continue;
+          if (incomeCatIds.has(t.categoryId)) {
+            if (t.ignoreInBudget) income += t.amount;
+          } else if (budgetedExpenseCatIds.has(t.categoryId)) {
+            if (occasionalCatIds.has(t.categoryId)) {
+              if (t.ignoreInBudget) savings -= t.amount;
+              else savings += t.amount;
+            } else if (t.ignoreInBudget) {
+              actual -= t.amount;
+            } else {
+              actual += t.amount;
+            }
+          }
         }
       }
 
-      return { month: m, planned, actual };
+      return { month: m, planned, actual, income, savings };
     });
   }, [appData, year, scope, selectedCats]);
 
   const monthLabels = data.map((d) => d.month.split('-')[1]);
+
+  const todayMonth = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  const isCompleted = (m: string) => m < todayMonth;
 
   const chartData = {
     labels: monthLabels,
@@ -88,14 +140,35 @@ export function YearView() {
         borderColor: '#3b82f6',
         backgroundColor: '#3b82f644',
         tension: 0.3,
+        borderWidth: 3,
       },
       {
         label: 'Actual',
-        data: data.map((d) => d.actual),
+        data: data.map((d) => isCompleted(d.month) ? d.actual : null),
         borderColor: '#ef4444',
         backgroundColor: '#ef444444',
         tension: 0.3,
+        spanGaps: false,
+        borderWidth: 3,
       },
+      {
+        label: 'Spent from Savings',
+        data: data.map((d) => isCompleted(d.month) ? d.savings : null),
+        borderColor: '#d97706',
+        backgroundColor: '#d9770644',
+        tension: 0.3,
+        spanGaps: false,
+        borderWidth: 3,
+      },
+      ...(scope === 'overall' ? [{
+        label: 'Income',
+        data: data.map((d) => isCompleted(d.month) ? d.income : null),
+        borderColor: '#16a34a',
+        backgroundColor: '#16a34a44',
+        tension: 0.3,
+        spanGaps: false,
+        borderWidth: 3,
+      }] : []),
     ],
   };
 
@@ -120,20 +193,25 @@ export function YearView() {
           <thead>
             <tr>
               <th>Month</th>
+              <th className="num">Income</th>
               <th className="num">Planned</th>
               <th className="num">Actual</th>
               <th className="num">Variance</th>
+              <th className="num">Spent from Savings</th>
             </tr>
           </thead>
           <tbody>
-            {data.map((d) => {
+            {data.map((d, i) => {
+              const completed = isCompleted(d.month);
               const v = d.planned - d.actual;
               return (
-                <tr key={d.month}>
+                <tr key={d.month} className={i % 2 === 0 ? 'budget-row-even' : 'budget-row-odd'} style={!completed ? { color: 'var(--text-3)' } : undefined}>
                   <td>{d.month}</td>
-                  <td className="num">${d.planned.toFixed(0)}</td>
-                  <td className="num">${d.actual.toFixed(0)}</td>
-                  <td className={`num ${v >= 0 ? 'positive' : 'negative'}`}>${v.toFixed(0)}</td>
+                  <td className="num budget-num positive">{completed && d.income > 0 ? `$${formatAmount(d.income, 0)}` : '—'}</td>
+                  <td className="num budget-num">${formatAmount(d.planned, 0)}</td>
+                  <td className="num budget-num">{completed ? `$${formatAmount(d.actual, 0)}` : '—'}</td>
+                  <td className={`num budget-num ${completed ? (v >= 0 ? 'positive' : 'negative') : ''}`}>{completed ? `$${formatAmount(v, 0)}` : '—'}</td>
+                  <td className="num budget-num" style={{ color: completed ? 'var(--yellow)' : undefined }}>{completed && d.savings > 0 ? `$${formatAmount(d.savings, 0)}` : '—'}</td>
                 </tr>
               );
             })}
@@ -160,7 +238,7 @@ export function YearView() {
 
       {scope === 'categories' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginBottom: '0.5rem' }}>
-          {categories.map((c) => (
+          {[...categories].sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
             <button
               key={c.id}
               className={`btn btn-sm ${selectedCats.includes(c.id) ? 'btn-primary' : 'btn-ghost'}`}
@@ -181,10 +259,10 @@ export function YearView() {
               responsive: true,
               maintainAspectRatio: false,
               scales: {
-                y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: '#333' } },
-                x: { ticks: { color: '#888' }, grid: { color: '#222' } },
+                y: { beginAtZero: true, ticks: { color: '#555', font: { size: 16 } }, grid: { color: '#e5e7eb' } },
+                x: { ticks: { color: '#555', font: { size: 16 } }, grid: { color: '#e5e7eb' } },
               },
-              plugins: { legend: { labels: { color: '#ccc' } } },
+              plugins: { legend: { labels: { color: '#1a2332', font: { size: 16 } } } },
             }}
           />
         </div>
