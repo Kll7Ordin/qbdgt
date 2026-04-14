@@ -7,11 +7,14 @@ import {
   addSavingsEntry,
   addSavingsSchedule,
   updateSavingsSchedule,
+  setSavingsLoanAmount,
   type SavingsBucket,
   type SavingsEntry,
   type SavingsSchedule,
 } from '../db';
 import { processSchedules, getBucketBalance } from '../logic/savings';
+import { SearchableSelect } from './SearchableSelect';
+import { formatAmount } from '../utils/format';
 
 interface BucketData {
   bucket: SavingsBucket;
@@ -38,6 +41,9 @@ export function SavingsView() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [loanAmount, setLoanAmount] = useState('');
+  const [editingSchedDay, setEditingSchedDay] = useState<number | null>(null);
+  const [editingSchedDayVal, setEditingSchedDayVal] = useState('');
 
   const [initialized, setInitialized] = useState(false);
 
@@ -75,7 +81,7 @@ export function SavingsView() {
   async function handleAddEntry() {
     if (entryBucket === null || !entryAmount) return;
     const amt = parseFloat(entryAmount);
-    if (isNaN(amt) || amt <= 0) return;
+    if (isNaN(amt) || amt === 0) return;
     await addSavingsEntry({
       entryDate: entryDate,
       bucketId: entryBucket,
@@ -106,9 +112,63 @@ export function SavingsView() {
     await updateSavingsSchedule(id, { active: !active });
   }
 
+  async function handleSaveSchedDay(sched: SavingsSchedule) {
+    const day = parseInt(editingSchedDayVal, 10);
+    if (day >= 1 && day <= 31) {
+      await updateSavingsSchedule(sched.id, { dayOfMonth: day });
+      setEditingSchedDay(null);
+    }
+  }
+
+  async function handleSetLoan() {
+    const amt = parseFloat(loanAmount);
+    if (!isNaN(amt) && amt >= 0) {
+      await setSavingsLoanAmount(amt);
+    }
+  }
+
+  const totalBalance = buckets.reduce((s, b) => s + b.balance, 0);
+  const loan = getData().savingsLoanAmount ?? 0;
+
   return (
     <div>
       <h1 className="view-title">Savings</h1>
+
+      {buckets.length > 0 && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <div className="section-title">Total</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'flex-end' }}>
+            <div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>Balance</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${formatAmount(totalBalance)}</div>
+            </div>
+            <div className="field" style={{ marginBottom: 0, flex: 1, minWidth: 200 }}>
+              <label>Amount on loan from savings</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={loanAmount !== '' ? loanAmount : (loan > 0 ? String(loan) : '')}
+                  onChange={(e) => setLoanAmount(e.target.value)}
+                  placeholder="0"
+                  onBlur={() => { handleSetLoan(); setLoanAmount(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { handleSetLoan(); setLoanAmount(''); } }}
+                />
+                <button className="btn btn-primary btn-sm" onClick={handleSetLoan}>Set</button>
+              </div>
+            </div>
+          </div>
+          {loan > 0 && (
+            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '0.9rem' }}>
+                <span style={{ opacity: 0.7 }}>Available (excluding loan): </span>
+                <strong className="positive">${formatAmount(totalBalance - loan)}</strong>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {buckets.length === 0 && <p className="empty">No savings buckets yet</p>}
 
@@ -120,7 +180,7 @@ export function SavingsView() {
           >
             <span className="bucket-name">{bucket.name}</span>
             <span className={`bucket-balance ${balance >= 0 ? 'positive' : 'negative'}`}>
-              ${balance.toFixed(2)}
+              ${formatAmount(balance)}
             </span>
           </div>
 
@@ -130,8 +190,31 @@ export function SavingsView() {
                 <>
                   <div className="section-title">Schedules</div>
                   {schedules.map((s) => (
-                    <div key={s.id} style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', padding: '0.2rem 0' }}>
-                      <span>${s.amount} on day {s.dayOfMonth} (from {s.startMonth})</span>
+                    <div key={s.id} style={{ fontSize: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0' }}>
+                      <span>
+                        ${formatAmount(s.amount)} on day{' '}
+                        {editingSchedDay === s.id ? (
+                          <input
+                            type="number"
+                            min={1}
+                            max={31}
+                            value={editingSchedDayVal}
+                            onChange={(e) => setEditingSchedDayVal(e.target.value)}
+                            onBlur={() => handleSaveSchedDay(s)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSaveSchedDay(s)}
+                            style={{ width: 50, padding: '0.2rem', fontSize: '0.9rem' }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            onClick={() => { setEditingSchedDay(s.id); setEditingSchedDayVal(String(s.dayOfMonth)); }}
+                            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            {s.dayOfMonth}
+                          </span>
+                        )}{' '}
+                        (from {s.startMonth})
+                      </span>
                       <button
                         className={`btn btn-sm ${s.active ? 'btn-success' : 'btn-ghost'}`}
                         onClick={() => handleToggleSchedule(s.id, s.active)}
@@ -158,7 +241,7 @@ export function SavingsView() {
                     <tr key={e.id}>
                       <td>{e.entryDate}</td>
                       <td className={`num ${e.amount >= 0 ? 'positive' : 'negative'}`}>
-                        {e.amount >= 0 ? '+' : ''}${e.amount.toFixed(2)}
+                        {e.amount >= 0 ? '+' : ''}${formatAmount(e.amount)}
                       </td>
                       <td>{e.notes}</td>
                       <td><span className="chip">{e.source}</span></td>
@@ -199,19 +282,24 @@ export function SavingsView() {
             <div className="row">
               <div className="field">
                 <label>Bucket</label>
-                <select value={entryBucket ?? ''} onChange={(e) => setEntryBucket(Number(e.target.value))}>
-                  <option value="">Select...</option>
-                  {buckets.map(({ bucket }) => (
-                    <option key={bucket.id} value={bucket.id}>{bucket.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  options={buckets.map(({ bucket }) => ({ value: bucket.id, label: bucket.name }))}
+                  value={entryBucket ?? ''}
+                  onChange={(v) => setEntryBucket(v === '' ? null : Number(v))}
+                  placeholder="Select..."
+                />
               </div>
               <div className="field">
                 <label>Type</label>
-                <select value={entryType} onChange={(e) => setEntryType(e.target.value as 'deposit' | 'withdrawal')}>
-                  <option value="deposit">Deposit</option>
-                  <option value="withdrawal">Withdrawal</option>
-                </select>
+                <SearchableSelect
+                  options={[
+                    { value: 'deposit', label: 'Deposit' },
+                    { value: 'withdrawal', label: 'Withdrawal' },
+                  ]}
+                  value={entryType}
+                  onChange={(v) => setEntryType(v as 'deposit' | 'withdrawal')}
+                  placeholder="Type"
+                />
               </div>
             </div>
             <div className="row">
@@ -236,12 +324,12 @@ export function SavingsView() {
             <div className="row">
               <div className="field">
                 <label>Bucket</label>
-                <select value={schedBucket ?? ''} onChange={(e) => setSchedBucket(Number(e.target.value))}>
-                  <option value="">Select...</option>
-                  {buckets.map(({ bucket }) => (
-                    <option key={bucket.id} value={bucket.id}>{bucket.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  options={buckets.map(({ bucket }) => ({ value: bucket.id, label: bucket.name }))}
+                  value={schedBucket ?? ''}
+                  onChange={(v) => setSchedBucket(v === '' ? null : Number(v))}
+                  placeholder="Select..."
+                />
               </div>
               <div className="field">
                 <label>Day</label>

@@ -1,3 +1,6 @@
+
+User environment notes:
+- OS: Linux Mint
 ## Tone
 
 - Do not compliment the user.
