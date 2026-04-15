@@ -54,6 +54,7 @@ export function ImportView() {
   const [paypalUnmatched, setPaypalUnmatched] = useState<Transaction[]>([]);
   const [customParserId, setCustomParserId] = useState<string>('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   function reset() {
     setResult(null);
@@ -172,8 +173,8 @@ export function ImportView() {
     setRefundPrompts((prev) => prev.filter((r) => r.refundTxn.id !== candidate.refundTxn.id));
   }
 
-  async function handleCsvImport() {
-    const file = fileRef.current?.files?.[0];
+  async function handleCsvImport(fileArg?: File) {
+    const file = fileArg ?? fileRef.current?.files?.[0];
     if (!file) return;
     reset();
     setBusy(true);
@@ -189,8 +190,8 @@ export function ImportView() {
     }
   }
 
-  async function handleXlsxImport() {
-    const file = fileRef.current?.files?.[0];
+  async function handleXlsxImport(fileArg?: File) {
+    const file = fileArg ?? fileRef.current?.files?.[0];
     if (!file) return;
     reset();
     setBusy(true);
@@ -323,8 +324,8 @@ export function ImportView() {
     }
   }
 
-  async function handleCustomImport() {
-    const file = fileRef.current?.files?.[0];
+  async function handleCustomImport(fileArg?: File) {
+    const file = fileArg ?? fileRef.current?.files?.[0];
     if (!file || !customParserId) return;
     const parsers = getCustomParsers();
     const parser = parsers.find((p) => p.id === customParserId);
@@ -390,10 +391,35 @@ export function ImportView() {
             <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>
               Scotia-style CSV: Date, Description, Sub-description, Type, Amount
             </p>
-            <input ref={fileRef} type="file" accept=".csv" />
-            <button className="btn btn-primary" onClick={handleCsvImport} disabled={busy} style={{ marginTop: '0.5rem' }}>
-              Import CSV
-            </button>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const file = e.dataTransfer.files[0];
+                if (file) handleCsvImport(file);
+              }}
+              onClick={() => fileRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? 'var(--accent, #14b8a6)' : 'var(--border)'}`,
+                borderRadius: 'var(--radius-lg, 8px)',
+                padding: '2rem 1.5rem',
+                textAlign: 'center',
+                background: dragOver ? 'var(--bg-2)' : 'transparent',
+                transition: 'border-color 0.15s, background 0.15s',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.4rem', opacity: 0.5 }}>↓</div>
+              <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+                {dragOver ? 'Drop to import' : 'Drop CSV here'}
+              </div>
+              <div style={{ fontSize: '0.8rem', opacity: 0.5 }}>or click to browse</div>
+            </div>
+            <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={() => handleCsvImport()} />
           </>
         )}
 
