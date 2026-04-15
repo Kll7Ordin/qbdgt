@@ -55,7 +55,7 @@ interface BudgetRow {
 
 const _catMap = new Map<number, string>();
 
-function buildRows(month: string, categories: Category[], _budgetGroups: BudgetGroup[]): { rows: BudgetRow[]; priorMonthCount: number } {
+function buildRows(month: string, categories: Category[], _budgetGroups: BudgetGroup[]): { rows: BudgetRow[]; priorMonthCount: number; allIncomeReceived: number } {
   const d = getData();
   const budgets = d.budgets.filter((b) => b.month === month);
   _catMap.clear();
@@ -127,7 +127,16 @@ function buildRows(month: string, categories: Category[], _budgetGroups: BudgetG
       sortOrder: (b as { sortOrder?: number }).sortOrder ?? 0,
     };
   });
-  return { rows, priorMonthCount: priorMonths.length };
+  // Sum income received from ALL income categories, regardless of whether a budget entry exists
+  const allIncomeCatIds = new Set(
+    categories.filter((c) => c.isIncome || INCOME_CATEGORY_NAMES.has(c.name)).map((c) => c.id)
+  );
+  let allIncomeReceived = 0;
+  for (const [catId, amount] of incomeByCategory) {
+    if (allIncomeCatIds.has(catId)) allIncomeReceived += amount;
+  }
+
+  return { rows, priorMonthCount: priorMonths.length, allIncomeReceived };
 }
 
 function groupRows(rows: BudgetRow[], groups: BudgetGroup[]): { group: BudgetGroup | null; rows: BudgetRow[] }[] {
@@ -165,6 +174,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editingGroupName, setEditingGroupName] = useState('');
   const [priorMonthCount, setPriorMonthCount] = useState(0);
+  const [allIncomeReceived, setAllIncomeReceived] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [editNoteId, setEditNoteId] = useState<number | null>(null);
   const [editNoteText, setEditNoteText] = useState('');
@@ -241,6 +251,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
       const result = buildRows(month, d.categories, d.budgetGroups ?? []);
       setRows(result.rows);
       setPriorMonthCount(result.priorMonthCount);
+      setAllIncomeReceived(result.allIncomeReceived);
     }
     refresh();
     return subscribe(refresh);
@@ -527,9 +538,9 @@ export function BudgetView({ search = '' }: { search?: string }) {
   const totalSpent = regularRows.reduce((s, r) => s + r.spent, 0);
   const spentFromSavings = savingsRows.reduce((s, r) => s + r.spent, 0);
   const totalIncome = incomeRows.reduce((s, r) => s + r.target, 0);
-  const totalReceived = incomeRows.reduce((s, r) => s + r.spent, 0);
-  const yetToReceive = totalIncome - totalReceived;
-  const net = totalIncome - totalTarget;
+  const totalReceived = allIncomeReceived;
+  const yetToReceive = totalIncome > 0 ? totalIncome - totalReceived : 0;
+  const net = allIncomeReceived - totalTarget;
   const grouped = groupRows(expenseRows, budgetGroups);
 
   const COLS = 10;
@@ -572,15 +583,15 @@ export function BudgetView({ search = '' }: { search?: string }) {
         {/* Budget */}
         <div style={{ flex: 1, minWidth: 220, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '0.875rem 1rem' }}>
           <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: '0.6rem' }}>Budget</div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${incomeRows.length > 0 ? 3 : 2}, 1fr)`, gap: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${allIncomeReceived > 0 ? 3 : 2}, 1fr)`, gap: '0.5rem' }}>
             <div className="summary-card">
               <span className="summary-label">Expenses</span>
               <span className="summary-value negative">${formatAmount(totalTarget, 0)}</span>
             </div>
-            {incomeRows.length > 0 && (
+            {allIncomeReceived > 0 && (
               <div className="summary-card">
-                <span className="summary-label">Income</span>
-                <span className="summary-value" style={{ color: '#16a34a' }}>${formatAmount(totalIncome, 0)}</span>
+                <span className="summary-label">Received</span>
+                <span className="summary-value" style={{ color: '#16a34a' }}>${formatAmount(allIncomeReceived, 0)}</span>
               </div>
             )}
             <div className="summary-card">

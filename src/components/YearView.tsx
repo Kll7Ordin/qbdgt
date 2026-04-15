@@ -93,11 +93,8 @@ export function YearView() {
               if (t.ignoreInBudget) income += s.amount;
             } else if (budgetedExpenseCatIds.has(s.categoryId)) {
               if (occasionalCatIds.has(s.categoryId)) {
-                if (t.ignoreInBudget) savings -= s.amount;
-                else savings += s.amount;
-              } else if (t.ignoreInBudget) {
-                actual -= s.amount;
-              } else {
+                if (!t.ignoreInBudget) savings += s.amount;
+              } else if (!t.ignoreInBudget) {
                 actual += s.amount;
               }
             }
@@ -108,11 +105,8 @@ export function YearView() {
             if (t.ignoreInBudget) income += t.amount;
           } else if (budgetedExpenseCatIds.has(t.categoryId)) {
             if (occasionalCatIds.has(t.categoryId)) {
-              if (t.ignoreInBudget) savings -= t.amount;
-              else savings += t.amount;
-            } else if (t.ignoreInBudget) {
-              actual -= t.amount;
-            } else {
+              if (!t.ignoreInBudget) savings += t.amount;
+            } else if (!t.ignoreInBudget) {
               actual += t.amount;
             }
           }
