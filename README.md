@@ -1,73 +1,66 @@
-# React + TypeScript + Vite
+# qbdgt
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A personal budgeting desktop app built with Tauri + React. All data stays on your machine — stored as a local JSON file, no accounts, no cloud sync.
 
-Currently, two official plugins are available:
+![Budget view](screenshots/1-budget.png)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- **Monthly budget** — set targets per category, track spent vs. remaining, see YTD totals and averages
+- **Category groups** — organise categories into groups (High Variable, Fixed Bills, Subscriptions, etc.)
+- **Transactions** — import, categorise, search, and annotate transactions
+- **Year view** — month-by-month income and spending summary
+- **Savings tracking** — buckets with scheduled contributions and balance history
+- **CSV import** — import from bank CSV exports, spreadsheet workbooks, Amazon order history, or PayPal
+- **AI assistant** — local LLM via [Ollama](https://ollama.com); answers questions about your budget, categorises transactions, and writes import parsers. No data leaves your machine.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Screenshots
 
-## Expanding the ESLint configuration
+| Budget | Transactions | Year | Import |
+|--------|-------------|------|--------|
+| ![](screenshots/1-budget.png) | ![](screenshots/2-transactions.png) | ![](screenshots/3-year.png) | ![](screenshots/5-import.png) |
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Getting started
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Prerequisites
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- [Node.js](https://nodejs.org) 18+
+- [Rust](https://rustup.rs) (for Tauri)
+- [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Run in development
+
+```bash
+npm install
+npm run tauri:dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Build a release
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run tauri:build
 ```
+
+The installer is written to `src-tauri/target/release/bundle/`.
+
+## AI assistant setup
+
+The AI assistant runs entirely locally using Ollama.
+
+1. Install [Ollama](https://ollama.com)
+2. Open **Settings → AI Assistant** and pull a model (recommended: `qwen2.5:7b`, ~4.7 GB VRAM)
+3. Click the **AI Assistant** button in the top bar to open the chat panel
+
+The assistant can answer questions about your budget, recategorise transactions, create auto-categorisation rules, and generate parsers for new import formats.
+
+## Data
+
+Your budget is stored as a single JSON file that you choose when first launching the app. You can back it up, version it, or move it between machines like any other file.
+
+## Tech stack
+
+- [Tauri 2](https://tauri.app) — desktop shell
+- [React 19](https://react.dev) + TypeScript
+- [Vite](https://vite.dev)
+- [Chart.js](https://www.chartjs.org) — year view charts
+- [xlsx](https://github.com/SheetJS/sheetjs) — spreadsheet import

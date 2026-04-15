@@ -1,132 +1,50 @@
 import type { AppData, Category, Budget, BudgetGroup, SavingsBucket, SavingsEntry, SavingsSchedule, SplitTemplate } from './db';
 
 /** Income category names (shown in separate section, excluded from expense remaining). */
-export const INCOME_CATEGORY_NAMES = new Set(['Salary', 'Partner Transfer', 'Child Benefit']);
+export const INCOME_CATEGORY_NAMES = new Set(['Salary']);
+
+/** Default budget groups for new files. */
+export const DEFAULT_BUDGET_GROUPS: { name: string; sortOrder: number }[] = [
+  { name: 'High Variable',              sortOrder: 0 },
+  { name: 'Low Variable',               sortOrder: 1 },
+  { name: 'Fixed Bills',                sortOrder: 2 },
+  { name: 'Subscriptions',              sortOrder: 3 },
+  { name: 'Joint Utilities',            sortOrder: 4 },
+  { name: 'Short Term Savings Account', sortOrder: 5 },
+  { name: 'Long Term Savings',          sortOrder: 6 },
+  { name: 'Occasional',                 sortOrder: 7 },
+];
 
 /** Default categories and budget amounts for new files. */
-export const DEFAULT_BUDGET_ITEMS: { name: string; amount: number }[] = [
-  { name: 'Household Items', amount: 100 },
-  { name: 'Home Improvement', amount: 150 },
-  { name: 'Joint Spending', amount: 200 },
-  { name: 'Family Spending', amount: 100 },
-  { name: 'Alcohol', amount: 100 },
-  { name: 'Groceries', amount: 1300 },
-  { name: 'Drugstore etc.', amount: 100 },
-  { name: 'Kids Activities', amount: 150 },
-  { name: 'Kids Clothes', amount: 200 },
-  { name: 'Kids Misc. Things', amount: 200 },
-  { name: 'Gas', amount: 160 },
-  { name: 'Partner Spending', amount: 250 },
-  { name: 'Personal Spending', amount: 250 },
-  { name: 'Healthcare Incidentals', amount: 50 },
-  { name: 'Misc. Incidentals', amount: 100 },
-  { name: 'Charity', amount: 40 },
-  { name: 'Haircut 1', amount: 27 },
-  { name: 'Haircut 2', amount: 27 },
-  { name: 'Noah Haircut', amount: 20 },
-  { name: 'Daycare', amount: 501 },
-  { name: 'Netflix', amount: 0 },
-  { name: 'Disney', amount: 0 },
-  { name: 'ChatGPT', amount: 30 },
-  { name: 'Streaming', amount: 45 },
-  { name: 'Media', amount: 46 },
-  { name: 'Car Insurance - Supplimentary', amount: 53.32 },
-  { name: 'Spotify', amount: 17.91 },
-  { name: 'Amazon Prime', amount: 0 },
-  { name: 'Commonwealth Membership', amount: 30 },
-  { name: 'Mortgage', amount: 2280.38 },
-  { name: 'Phones', amount: 80 },
-  { name: 'Misc.', amount: 0 },
-  { name: 'Window Loan Repayment', amount: 151.61 },
-  { name: 'Partner Work', amount: 50 },
-  { name: 'Partner School', amount: 350 },
-  { name: 'RRSP 1', amount: 650 },
-  { name: 'RRSP 2', amount: 350 },
-  { name: 'Salary', amount: 7287.42 },
-  { name: 'Partner Transfer', amount: 4600 },
-  { name: 'Child Benefit', amount: 348.85 },
-  { name: 'Synagogue Membership', amount: 220 },
-  { name: 'Partner School Savings', amount: 450 },
-  { name: 'Mortgage Extra', amount: 450 },
-  { name: 'Short Term Savings', amount: 500 },
-  { name: 'Vacation Savings', amount: 500 },
-  { name: 'House Incidentals Savings', amount: 100 },
-  { name: 'Partner Tax', amount: 1000 },
-  { name: 'New Car Savings', amount: 100 },
-  { name: 'Car Incidentals Savings', amount: 150 },
-  { name: 'Car Insurance Savings', amount: 91.5 },
-  { name: 'Property Tax Savings', amount: 266 },
-  { name: 'House Insurance Savings', amount: 99 },
-  { name: 'Misc. Short Term Savings', amount: 100 },
-  { name: 'Hydro', amount: 165.2 },
-  { name: 'Internet', amount: 75.6 },
-  { name: 'Utilities Savings', amount: 70 },
-  { name: 'Spotify Kathy', amount: -10 },
-  { name: 'Noah Savings', amount: 200 },
-  { name: 'Mira Savings', amount: 200 },
-  { name: 'Vacation', amount: 0 },
-  { name: 'House Incidentals', amount: 0 },
-  { name: 'Car Incidentals', amount: 0 },
-  { name: 'Car Insurance', amount: 0 },
-  { name: 'Property Tax', amount: 0 },
-  { name: 'House Insurance', amount: 0 },
-  { name: 'Short Term Savings Spending', amount: 0 },
+export const DEFAULT_BUDGET_ITEMS: { name: string; group: string | null; amount: number }[] = [
+  { name: 'Groceries',        group: 'High Variable',              amount: 0 },
+  { name: 'Home Improvement', group: 'High Variable',              amount: 0 },
+  { name: 'Household Items',  group: 'High Variable',              amount: 0 },
+  { name: 'Drugstore etc.',   group: 'High Variable',              amount: 0 },
+  { name: 'Family Spending',  group: 'High Variable',              amount: 0 },
+  { name: 'Gas',              group: 'Low Variable',               amount: 0 },
+  { name: 'Charity',          group: 'Fixed Bills',                amount: 0 },
+  { name: 'Media',            group: 'Fixed Bills',                amount: 0 },
+  { name: 'Mortgage',         group: 'Fixed Bills',                amount: 0 },
+  { name: 'Phones',           group: 'Fixed Bills',                amount: 0 },
+  { name: 'Streaming',        group: 'Subscriptions',              amount: 0 },
+  { name: 'Hydro',            group: 'Joint Utilities',            amount: 0 },
+  { name: 'Internet',         group: 'Joint Utilities',            amount: 0 },
+  { name: 'Utilities Savings',group: 'Joint Utilities',            amount: 0 },
+  { name: 'Short Term Savings',group: 'Short Term Savings Account',amount: 0 },
+  { name: 'RRSP',             group: 'Long Term Savings',          amount: 0 },
+  { name: 'Misc.',            group: 'Occasional',                 amount: 0 },
+  { name: 'Incidentals',      group: 'Occasional',                 amount: 0 },
+  { name: 'Salary',           group: null,                         amount: 0 },
 ];
 
 /** Default savings buckets with monthly contribution schedules. */
-export const DEFAULT_SAVINGS: { bucket: string; amount: number }[] = [
-  { bucket: 'Short Term Savings', amount: 500 },
-  { bucket: 'Vacation Savings', amount: 500 },
-  { bucket: 'House Incidentals Savings', amount: 100 },
-  { bucket: 'Partner Tax', amount: 1000 },
-  { bucket: 'New Car Savings', amount: 100 },
-  { bucket: 'Car Incidentals Savings', amount: 150 },
-  { bucket: 'Car Insurance Savings', amount: 91.5 },
-  { bucket: 'Property Tax Savings', amount: 266 },
-  { bucket: 'House Insurance Savings', amount: 99 },
-  { bucket: 'Misc. Short Term Savings', amount: 100 },
-];
+export const DEFAULT_SAVINGS: { bucket: string; amount: number }[] = [];
 
-/** Current balances for each savings bucket (opening balances for new files). Total: 14833.23 */
-export const DEFAULT_SAVINGS_BALANCES: { bucket: string; amount: number }[] = [
-  { bucket: 'Car Insurance Savings', amount: 1281 },
-  { bucket: 'House Incidentals Savings', amount: 1531 },
-  { bucket: 'Car Incidentals Savings', amount: 910 },
-  { bucket: 'Vacation Savings', amount: 3809.7 },
-  { bucket: 'House Insurance Savings', amount: 397.62 },
-  { bucket: 'Property Tax Savings', amount: 1038 },
-  { bucket: 'New Car Savings', amount: 1500 },
-  { bucket: 'Partner Tax', amount: 10000 },
-  { bucket: 'Misc. Short Term Savings', amount: 1200 },
-  { bucket: 'Short Term Savings', amount: 1165.91 },
-];
+/** Current balances for each savings bucket (opening balances for new files). */
+export const DEFAULT_SAVINGS_BALANCES: { bucket: string; amount: number }[] = [];
 
-export const DEFAULT_SPLIT_TEMPLATES: Omit<SplitTemplate, 'id'>[] = [
-  {
-    name: 'Savings transfer',
-    items: [
-      { categoryName: 'Short Term Savings', amount: 500 },
-      { categoryName: 'Vacation Savings', amount: 500 },
-      { categoryName: 'House Incidentals Savings', amount: 100 },
-      { categoryName: 'Partner Tax', amount: 1000 },
-      { categoryName: 'New Car Savings', amount: 100 },
-      { categoryName: 'Car Incidentals Savings', amount: 150 },
-      { categoryName: 'Car Insurance Savings', amount: 91.5 },
-      { categoryName: 'Property Tax Savings', amount: 266 },
-      { categoryName: 'House Insurance Savings', amount: 99 },
-      { categoryName: 'Misc. Short Term Savings', amount: 100 },
-    ],
-  },
-  {
-    name: 'Utilities transfer',
-    items: [
-      { categoryName: 'Hydro', amount: 165.2 },
-      { categoryName: 'Internet', amount: 75.6 },
-      { categoryName: 'Utilities Savings', amount: 70 },
-      { categoryName: 'Spotify Kathy', amount: -10 },
-    ],
-  },
-];
+export const DEFAULT_SPLIT_TEMPLATES: Omit<SplitTemplate, 'id'>[] = [];
 
 function currentMonth(): string {
   const d = new Date();
@@ -151,13 +69,20 @@ export function buildSeedData(): AppData {
 
   const catByName = new Map(categories.map((c) => [c.name, c.id]));
 
-  const budgetGroups: BudgetGroup[] = [];
-  const budgetMonths = [month, '2026-01', '2026-02', '2026-03'];
+  const budgetGroups: BudgetGroup[] = DEFAULT_BUDGET_GROUPS.map(({ name, sortOrder }) => ({
+    id: nextId++,
+    name,
+    sortOrder,
+  }));
+  const groupIdByName = new Map(budgetGroups.map((g) => [g.name, g.id]));
+
+  const budgetMonths = [month];
   const budgets: Budget[] = [];
   for (const m of budgetMonths) {
-    for (const { name, amount } of DEFAULT_BUDGET_ITEMS) {
+    for (const { name, amount, group } of DEFAULT_BUDGET_ITEMS) {
       const categoryId = catByName.get(name)!;
-      budgets.push({ id: nextId++, month: m, categoryId, targetAmount: amount });
+      const groupId = group != null ? (groupIdByName.get(group) ?? null) : null;
+      budgets.push({ id: nextId++, month: m, categoryId, targetAmount: amount, groupId });
     }
   }
 

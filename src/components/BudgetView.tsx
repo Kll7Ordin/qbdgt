@@ -593,7 +593,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
         {/* Month to Date */}
         <div style={{ flex: 1, minWidth: 220, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '0.875rem 1rem' }}>
           <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: '0.6rem' }}>Month to Date</div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${spentFromSavings > 0 ? (incomeRows.length > 0 ? 5 : 3) : (incomeRows.length > 0 ? 4 : 2)}, 1fr)`, gap: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${occasionalGroupId != null ? (incomeRows.length > 0 ? 5 : 3) : (incomeRows.length > 0 ? 4 : 2)}, 1fr)`, gap: '0.5rem' }}>
             <div className="summary-card">
               <span className="summary-label">Spent</span>
               <span className="summary-value" style={{ color: 'var(--text)' }}>${formatAmount(totalSpent, 0)}</span>
