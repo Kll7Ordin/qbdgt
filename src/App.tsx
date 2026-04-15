@@ -152,7 +152,7 @@ function App() {
         >
           ⚙
         </button>
-        <span className="app-version">v1.0</span>
+        <span className="app-version">v1.1</span>
       </nav>
       {searchOpen && (
         <div className="search-bar">

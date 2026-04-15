@@ -1,4 +1,5 @@
 import { useState, useEffect, useSyncExternalStore } from 'react';
+import { PasswordPrompt } from './PasswordPrompt';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   getData,
@@ -12,7 +13,6 @@ import {
   addRecurringTemplate,
   deleteRecurringTemplate,
   updateRecurringTemplate,
-  upsertBudget,
   purgeTransactionsByMonth,
   updateCategoryColor,
   getAISettings,
@@ -26,7 +26,7 @@ import {
 } from '../db';
 import { recategorizeAll } from '../logic/categorize';
 import { createReadableArchive } from '../utils/export';
-import { rematchAllPaypal, confirmPaypalMatch, discardPaypalTransactions, type PaypalMatchCandidate } from '../logic/matching';
+import { confirmPaypalMatch, discardPaypalTransactions, type PaypalMatchCandidate } from '../logic/matching';
 import { checkOllama, listModels, pullModel, RECOMMENDED_MODELS } from '../logic/llm';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -51,6 +51,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
   const templates = data.recurringTemplates
     .filter((t) => !sq || t.descriptor.toLowerCase().includes(sq) || (t.categoryId && (catMap.get(t.categoryId) ?? '').toLowerCase().includes(sq)));
 
+  const [pendingEncryptedPath, setPendingEncryptedPath] = useState<string | null>(null);
   const [newCat, setNewCat] = useState('');
   const [newPattern, setNewPattern] = useState('');
   const [newMatchType, setNewMatchType] = useState<'exact' | 'contains'>('exact');
@@ -311,6 +312,21 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
     { id: 'settings-export', label: 'Export' },
   ];
 
+  if (pendingEncryptedPath) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--bg)' }}>
+        <PasswordPrompt
+          filePath={pendingEncryptedPath}
+          onSubmit={async (password) => {
+            await loadFromFile(pendingEncryptedPath, password);
+            setPendingEncryptedPath(null);
+          }}
+          onCancel={() => setPendingEncryptedPath(null)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <h1 className="view-title">Settings</h1>
@@ -358,32 +374,21 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
                 });
                 if (!selected) return;
                 const path = selected;
-                await loadFromFile(path);
+                try {
+                  await loadFromFile(path);
+                } catch (e) {
+                  if (String(e).includes('FILE_ENCRYPTED')) {
+                    setPendingEncryptedPath(path);
+                  } else {
+                    alert(String(e));
+                  }
+                }
               } catch (e) {
                 alert(String(e));
               }
             }}
           >
             Open different file
-          </button>
-          <button
-            className="btn btn-primary btn-sm"
-            style={{ marginTop: '0.5rem', display: 'block' }}
-            onClick={async () => {
-              const d = data;
-              const now = new Date();
-              const nextYear = now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear();
-              const nextMonth = now.getMonth() === 11 ? 1 : now.getMonth() + 2;
-              const nextMonthStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
-              const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-              const prevBudgets = d.budgets.filter((b) => b.month === currentMonthStr);
-              for (const b of prevBudgets) {
-                await upsertBudget(nextMonthStr, b.categoryId, b.targetAmount, b.groupId);
-              }
-              alert(`Added budget for ${nextMonthStr}.`);
-            }}
-          >
-            Add next month&apos;s budget
           </button>
         </div>
       )}
@@ -505,25 +510,6 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
         </div>
       )}
 
-      <div id="settings-paypal" className="card" style={{ marginBottom: '1rem' }}>
-        <div className="section-title">PayPal Matching</div>
-        <p style={{ fontSize: '0.85rem', opacity: 0.9, marginBottom: '0.75rem' }}>
-          Re-run PayPal matching for any unlinked PayPal transactions still in the system.
-        </p>
-        <button
-          className="btn btn-primary"
-          onClick={async () => {
-            const { autoMatched, fuzzy, unmatched } = await rematchAllPaypal();
-            if (fuzzy.length > 0) setPaypalFuzzy(fuzzy);
-            if (unmatched.length > 0) setPaypalUnmatched(unmatched);
-            if (autoMatched === 0 && fuzzy.length === 0 && unmatched.length === 0) alert('No unlinked PayPal transactions found.');
-            else if (autoMatched > 0 && fuzzy.length === 0 && unmatched.length === 0) alert(`Auto-matched ${autoMatched} PayPal transaction(s).`);
-            else if (autoMatched > 0) alert(`Auto-matched ${autoMatched}. ${fuzzy.length} fuzzy + ${unmatched.length} unmatched need review.`);
-          }}
-        >
-          Re-run PayPal matching
-        </button>
-      </div>
 
       {paypalFuzzy.length > 0 && (
         <div className="modal-overlay" onClick={() => setPaypalFuzzy([])}>

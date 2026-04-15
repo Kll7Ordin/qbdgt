@@ -1,4 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { invoke } from '@tauri-apps/api/core';
 import {
   getData,
   bulkAddTransactions,
@@ -55,6 +57,29 @@ export function ImportView() {
   const [customParserId, setCustomParserId] = useState<string>('');
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const importTypeRef = useRef(importType);
+  useEffect(() => { importTypeRef.current = importType; }, [importType]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    getCurrentWebview().onDragDropEvent((event) => {
+      const { type } = event.payload;
+      if (type === 'enter' || type === 'over') {
+        setDragOver(true);
+      } else if (type === 'leave') {
+        setDragOver(false);
+      } else if (type === 'drop') {
+        setDragOver(false);
+        if (importTypeRef.current !== 'csv') return;
+        const csvPath = event.payload.paths.find((p: string) => p.toLowerCase().endsWith('.csv'));
+        if (!csvPath) return;
+        invoke<string>('load_data', { path: csvPath })
+          .then((text) => handleCsvImport(undefined, text))
+          .catch((e) => setError(String(e)));
+      }
+    }).then((fn) => { cleanup = fn; });
+    return () => { cleanup?.(); };
+  }, []);
 
   function reset() {
     setResult(null);
@@ -173,14 +198,21 @@ export function ImportView() {
     setRefundPrompts((prev) => prev.filter((r) => r.refundTxn.id !== candidate.refundTxn.id));
   }
 
-  async function handleCsvImport(fileArg?: File) {
-    const file = fileArg ?? fileRef.current?.files?.[0];
-    if (!file) return;
+  async function handleCsvImport(fileArg?: File, textArg?: string) {
     reset();
     setBusy(true);
     try {
-      const text = await file.text();
-      const txns = parseBankCsv(text, file.name);
+      let text: string;
+      let name = 'import.csv';
+      if (textArg !== undefined) {
+        text = textArg;
+      } else {
+        const file = fileArg ?? fileRef.current?.files?.[0];
+        if (!file) { setBusy(false); return; }
+        text = await file.text();
+        name = file.name;
+      }
+      const txns = parseBankCsv(text, name);
       if (txns.length === 0) throw new Error('No transactions parsed from CSV');
       await insertAndReport(txns, 'bank_csv');
     } catch (e) {
@@ -392,15 +424,6 @@ export function ImportView() {
               Scotia-style CSV: Date, Description, Sub-description, Type, Amount
             </p>
             <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(false);
-                const file = e.dataTransfer.files[0];
-                if (file) handleCsvImport(file);
-              }}
               onClick={() => fileRef.current?.click()}
               style={{
                 border: `2px dashed ${dragOver ? 'var(--accent, #14b8a6)' : 'var(--border)'}`,
