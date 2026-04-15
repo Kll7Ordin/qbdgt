@@ -16,9 +16,9 @@ A personal budgeting desktop app built with Tauri + React. All data stays on you
 
 ## Screenshots
 
-| Budget | Transactions | Year | Import |
-|--------|-------------|------|--------|
-| ![](screenshots/1-budget.png) | ![](screenshots/2-transactions.png) | ![](screenshots/3-year.png) | ![](screenshots/5-import.png) |
+| Budget | Import |
+|--------|--------|
+| ![](screenshots/1-budget.png) | ![](screenshots/5-import.png) |
 
 ## Getting started
 
