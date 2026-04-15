@@ -433,7 +433,7 @@ export function ImportView() {
               <input type="month" value={xlsxMonth} onChange={(e) => setXlsxMonth(e.target.value)} />
             </div>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" />
-            <button className="btn btn-primary" onClick={handleXlsxImport} disabled={busy} style={{ marginTop: '0.5rem' }}>
+            <button className="btn btn-primary" onClick={() => handleXlsxImport()} disabled={busy} style={{ marginTop: '0.5rem' }}>
               Import Workbook
             </button>
           </>
@@ -508,7 +508,7 @@ export function ImportView() {
               <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" style={{ marginBottom: '0.5rem' }} />
               <button
                 className="btn btn-primary"
-                onClick={handleCustomImport}
+                onClick={() => handleCustomImport()}
                 disabled={busy || !customParserId}
                 style={{ display: 'block' }}
               >
