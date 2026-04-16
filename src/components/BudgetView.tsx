@@ -612,15 +612,15 @@ export function BudgetView({ search = '' }: { search?: string }) {
         {/* Budget */}
         <div style={{ flex: 1, minWidth: 220, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '0.875rem 1rem' }}>
           <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: '0.6rem' }}>Budget</div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${allIncomeReceived > 0 ? 3 : 2}, 1fr)`, gap: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${totalIncome > 0 ? 3 : 2}, 1fr)`, gap: '0.5rem' }}>
             <div className="summary-card">
               <span className="summary-label">Expenses</span>
               <span className="summary-value negative">${formatAmount(totalTarget, 0)}</span>
             </div>
-            {allIncomeReceived > 0 && (
+            {totalIncome > 0 && (
               <div className="summary-card">
                 <span className="summary-label">Income</span>
-                <span className="summary-value" style={{ color: '#16a34a' }}>${formatAmount(allIncomeReceived, 0)}</span>
+                <span className="summary-value" style={{ color: '#16a34a' }}>${formatAmount(totalIncome, 0)}</span>
               </div>
             )}
             <div className="summary-card">
