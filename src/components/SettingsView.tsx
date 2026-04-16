@@ -15,6 +15,7 @@ import {
   updateRecurringTemplate,
   purgeTransactionsByMonth,
   updateCategoryColor,
+  updateCategoryIsIncome,
   getAISettings,
   updateAISettings,
   isCurrentFileEncrypted,
@@ -668,9 +669,19 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
               />
               <span style={{ fontWeight: 500 }}>{c.name}</span>
             </div>
-            <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(c.id)}>
-              &times;
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                className={`btn btn-sm ${c.isIncome ? 'btn-primary' : 'btn-ghost'}`}
+                title={c.isIncome ? 'Marked as income — click to unmark' : 'Mark as income category'}
+                onClick={() => updateCategoryIsIncome(c.id, !c.isIncome)}
+                style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem' }}
+              >
+                Income
+              </button>
+              <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(c.id)}>
+                &times;
+              </button>
+            </div>
           </div>
         ))}
         {categories.length === 0 && <p className="empty">No categories</p>}

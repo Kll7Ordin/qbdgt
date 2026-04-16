@@ -36,6 +36,11 @@ export async function updateCategoryNote(id: number, note: string): Promise<void
   if (cat) { cat.note = note || undefined; await persist(); }
 }
 
+export async function updateCategoryIsIncome(id: number, isIncome: boolean): Promise<void> {
+  const cat = data.categories.find((c) => c.id === id);
+  if (cat) { cat.isIncome = isIncome || undefined; await persist(); }
+}
+
 export interface CategoryRule {
   id: number;
   matchType: 'exact' | 'contains';
@@ -159,6 +164,7 @@ export interface ExperimentalBudgetItem {
   groupName: string | null;
   targetAmount: number;
   sortOrder?: number;
+  isIncome?: boolean;
 }
 
 export interface ExperimentalBudget {

@@ -619,7 +619,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
             </div>
             {allIncomeReceived > 0 && (
               <div className="summary-card">
-                <span className="summary-label">Received</span>
+                <span className="summary-label">Income</span>
                 <span className="summary-value" style={{ color: '#16a34a' }}>${formatAmount(allIncomeReceived, 0)}</span>
               </div>
             )}
