@@ -328,7 +328,6 @@ textarea:focus {
   border-bottom: 1px solid var(--border-2);
   vertical-align: middle;
   font-size: 0.93rem;
-  font-weight: 600;
   color: var(--text);
 }
 .data-table td.positive { color: var(--green); }
@@ -345,6 +344,9 @@ textarea:focus {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.data-table td.num {
+  font-weight: 600;
 }
 
 .data-table tr.txn-row-uncat-alt td {

@@ -120,8 +120,8 @@ Configure categories, rules, encryption, parsers, and more.
 - **Recurring templates** — define recurring transactions that are automatically created each month (e.g. mortgage, subscriptions).
 - **Encryption** — set or change a password to encrypt your data file. The file is decrypted in memory only; nothing unencrypted touches disk.
 - **Display** — zoom level (50 %–150 %) to suit your screen density.
-- **Export** — export your full data as a plain JSON archive or encrypted JSON archive for backups.
-- **PayPal** — configure PayPal integration credentials for automated imports.
+- **Export** — export as a human-readable Excel workbook (one budget sheet + one transaction sheet per month, plus a year summary and savings sheet), a plain JSON archive, or an encrypted JSON archive.
+- **PayPal** — paste your PayPal transaction history CSV export and match entries against existing bank transactions.
 - **AI / Parsers** — configure a local Ollama model and manage custom import parsers.
 - **Purge** — permanently delete transactions for a specific month and type (irreversible; category rules are kept).
 
