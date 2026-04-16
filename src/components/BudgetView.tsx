@@ -569,7 +569,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
   const totalIncome = incomeRows.reduce((s, r) => s + r.target, 0);
   const totalReceived = allIncomeReceived;
   const yetToReceive = totalIncome > 0 ? totalIncome - totalReceived : 0;
-  const net = allIncomeReceived - totalTarget;
+  const net = totalIncome - totalTarget;
   const grouped = groupRows(expenseRows, budgetGroups);
 
   const COLS = 10;
