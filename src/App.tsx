@@ -7,6 +7,7 @@ import { SavingsView } from './components/SavingsView';
 import { ImportView } from './components/ImportView';
 import { SettingsView } from './components/SettingsView';
 import { AIPanel } from './components/AIPanel';
+import { ExperimentalBudgetsView } from './components/ExperimentalBudgetsView';
 import { processRecurringTemplates } from './logic/recurring';
 import { processSchedules } from './logic/savings';
 import { startupCleanup, getAISettings, undo, canUndo, subscribeUndo } from './db';
@@ -14,7 +15,7 @@ import { checkOllama } from './logic/llm';
 import { invoke } from '@tauri-apps/api/core';
 import './App.css';
 
-type Tab = 'budget' | 'transactions' | 'year' | 'savings' | 'import' | 'settings';
+type Tab = 'budget' | 'transactions' | 'year' | 'savings' | 'import' | 'experimental' | 'settings';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'budget', label: 'Budget' },
@@ -22,6 +23,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'year', label: 'Year' },
   { key: 'savings', label: 'Savings' },
   { key: 'import', label: 'Import' },
+  { key: 'experimental', label: 'Exp. Budgets' },
 ];
 
 const ZOOM_KEY = 'budget-app-zoom';
@@ -152,7 +154,7 @@ function App() {
         >
           ⚙
         </button>
-        <span className="app-version">v1.1</span>
+        <span className="app-version">v1.2</span>
       </nav>
       {searchOpen && (
         <div className="search-bar">
@@ -178,6 +180,7 @@ function App() {
         {tab === 'year' && <YearView />}
         {tab === 'savings' && <SavingsView />}
         {tab === 'import' && <ImportView />}
+        {tab === 'experimental' && <ExperimentalBudgetsView />}
         {tab === 'settings' && <SettingsView zoom={zoom} onZoomChange={setZoom} search={searchTerm} />}
       </main>
       {aiOpen && <AIPanel onClose={() => setAiOpen(false)} />}

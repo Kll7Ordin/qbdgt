@@ -130,9 +130,9 @@ export async function createReadableArchive(appData: AppData): Promise<string> {
         if (t.ignoreInBudget) income += t.amount;
       } else if (budgetedExpenseCatIds.has(t.categoryId)) {
         if (occasionalCatIds.has(t.categoryId)) {
-          savings += t.ignoreInBudget ? -t.amount : t.amount;
+          if (!t.ignoreInBudget) savings += t.amount;
         } else {
-          actual += t.ignoreInBudget ? -t.amount : t.amount;
+          if (!t.ignoreInBudget) actual += t.amount;
         }
       }
     }

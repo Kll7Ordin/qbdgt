@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { flushSync, createPortal } from 'react-dom';
-import { getData, subscribe, upsertBudget, deleteBudget, addBudgetGroup, updateBudgetGroup, deleteBudgetGroup, reorderBudgetsInGroup, addCategory, updateCategoryNote, pushUndoSnapshot, type Category, type TransactionSplit, type BudgetGroup } from '../db';
+import { getData, subscribe, upsertBudget, deleteBudget, addBudgetGroup, updateBudgetGroup, deleteBudgetGroup, reorderBudgetsInGroup, addCategory, updateCategoryNote, pushUndoSnapshot, type Category, type TransactionSplit, type BudgetGroup, type ExperimentalBudget } from '../db';
 import { SearchableSelect } from './SearchableSelect';
 import { formatAmount } from '../utils/format';
 import { INCOME_CATEGORY_NAMES } from '../seed';
@@ -218,6 +218,9 @@ export function BudgetView({ search = '' }: { search?: string }) {
   }, []);
 
   const [barCapInfo, setBarCapInfo] = useState({ overflow: 600, catWidth: 400 });
+  const [showPickExperimental, setShowPickExperimental] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState<{ type: 'lastMonth' | 'experimental'; expId?: number } | null>(null);
+  const [experimentalBudgets, setExperimentalBudgets] = useState<ExperimentalBudget[]>([]);
 
   // Keep --bar-max-overflow in sync with the midpoint between YTD and YTD Target columns
   useEffect(() => {
@@ -248,6 +251,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
       const d = getData();
       setCategories(d.categories);
       setBudgetGroups(d.budgetGroups ?? []);
+      setExperimentalBudgets(d.experimentalBudgets ?? []);
       const result = buildRows(month, d.categories, d.budgetGroups ?? []);
       setRows(result.rows);
       setPriorMonthCount(result.priorMonthCount);
@@ -521,6 +525,31 @@ export function BudgetView({ search = '' }: { search?: string }) {
     } else {
       alert('No budget data found in previous 12 months to copy from.');
     }
+    setConfirmOverwrite(null);
+  }
+
+  async function copyFromExperimental(expId: number) {
+    const expBudgets = getData().experimentalBudgets ?? [];
+    const exp = expBudgets.find((b: ExperimentalBudget) => b.id === expId);
+    if (!exp) return;
+    for (const item of exp.items) {
+      await upsertBudget(month, item.categoryId, item.targetAmount, item.groupId);
+    }
+    setConfirmOverwrite(null);
+    setShowPickExperimental(false);
+  }
+
+  function requestCopy(type: 'lastMonth' | 'experimental', expId?: number) {
+    if (expenseRows.length > 0) {
+      setConfirmOverwrite({ type, expId });
+      if (type === 'experimental' && expId == null) {
+        setShowPickExperimental(true);
+      }
+    } else {
+      if (type === 'lastMonth') copyFromLastMonth();
+      else if (expId != null) copyFromExperimental(expId);
+      else setShowPickExperimental(true);
+    }
   }
 
   const sq = search.trim().toLowerCase();
@@ -638,8 +667,9 @@ export function BudgetView({ search = '' }: { search?: string }) {
       {/* Expense table — single table so columns align across all groups */}
       <div className="card">
         {expenseRows.length === 0 && (
-          <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
-            <button className="btn btn-primary" onClick={copyFromLastMonth}>Copy budget from last month</button>
+          <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={() => requestCopy('lastMonth')}>Copy budget from last month</button>
+            <button className="btn btn-ghost" onClick={() => requestCopy('experimental')}>Copy from Experimental Budgets</button>
           </div>
         )}
         <div className="section-title" style={{ marginTop: 0 }}>Expenses</div>
@@ -992,6 +1022,72 @@ export function BudgetView({ search = '' }: { search?: string }) {
           </button>
         </div>
       </div>
+
+      {/* Bottom copy buttons — shown when month already has budget items */}
+      {expenseRows.length > 0 && (
+        <div className="card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-3)', marginBottom: '0.5rem' }}>Replace this month's budget</div>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => requestCopy('lastMonth')}>Copy budget from last month</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => requestCopy('experimental')}>Copy from Experimental Budgets</button>
+          </div>
+        </div>
+      )}
+
+      {/* Experimental budget picker modal */}
+      {showPickExperimental && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 440 }}>
+            <h3 style={{ marginTop: 0 }}>Pick Experimental Budget</h3>
+            {experimentalBudgets.length === 0 ? (
+              <p style={{ color: 'var(--text-3)' }}>No experimental budgets saved yet. Go to the <strong>Exp. Budgets</strong> tab to create one.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+                {experimentalBudgets.map((eb) => (
+                  <button key={eb.id} className="btn btn-ghost" style={{ textAlign: 'left', justifyContent: 'flex-start' }}
+                    onClick={() => {
+                      if (expenseRows.length > 0) {
+                        setConfirmOverwrite({ type: 'experimental', expId: eb.id });
+                        setShowPickExperimental(false);
+                      } else {
+                        setShowPickExperimental(false);
+                        copyFromExperimental(eb.id);
+                      }
+                    }}>
+                    <span style={{ fontWeight: 600 }}>{eb.name}</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginLeft: '0.5rem' }}>
+                      {eb.items.length} items · {eb.createdAt.slice(0, 10)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowPickExperimental(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overwrite confirmation modal */}
+      {confirmOverwrite && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 380 }}>
+            <h3 style={{ marginTop: 0 }}>Overwrite Budget?</h3>
+            <p>This will overwrite all existing budget items for <strong>{month}</strong>. Are you sure?</p>
+            <div className="modal-actions">
+              <button className="btn btn-primary" onClick={() => {
+                if (confirmOverwrite.type === 'lastMonth') copyFromLastMonth();
+                else if (confirmOverwrite.expId != null) copyFromExperimental(confirmOverwrite.expId);
+                else { setConfirmOverwrite(null); setShowPickExperimental(true); }
+              }}>
+                Yes, overwrite
+              </button>
+              <button className="btn btn-ghost" onClick={() => setConfirmOverwrite(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Item drag ghost — portaled to body (outside zoom), positioned via ref */}
       {ghostInfo && createPortal(

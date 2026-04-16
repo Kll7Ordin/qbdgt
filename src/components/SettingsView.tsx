@@ -1,6 +1,6 @@
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import { PasswordPrompt } from './PasswordPrompt';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import {
   getData,
   subscribe,
@@ -26,6 +26,7 @@ import {
 } from '../db';
 import { recategorizeAll } from '../logic/categorize';
 import { createReadableArchive } from '../utils/export';
+import { encryptData } from '../utils/crypto';
 import { confirmPaypalMatch, discardPaypalTransactions, type PaypalMatchCandidate } from '../logic/matching';
 import { checkOllama, listModels, pullModel, RECOMMENDED_MODELS } from '../logic/llm';
 import { invoke } from '@tauri-apps/api/core';
@@ -283,6 +284,10 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
   }
 
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [jsonExportStatus, setJsonExportStatus] = useState<string | null>(null);
+  const [showEncryptArchiveModal, setShowEncryptArchiveModal] = useState(false);
+  const [archivePassword, setArchivePassword] = useState('');
+  const [archivePasswordConfirm, setArchivePasswordConfirm] = useState('');
 
   async function handleExport() {
     setExportStatus('Building archive…');
@@ -295,6 +300,59 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
       setExportStatus(`Error: ${String(e)}`);
     }
     setTimeout(() => setExportStatus(null), 8000);
+  }
+
+  async function handleExportUnencryptedJson() {
+    setJsonExportStatus('Saving…');
+    try {
+      const json = JSON.stringify(getData(), null, 2);
+      let savePath: string | null = null;
+      try {
+        savePath = await save({
+          defaultPath: 'budget-data.json',
+          filters: [{ name: 'JSON File', extensions: ['json'] }],
+        });
+      } catch (_e) {}
+      if (!savePath) {
+        const home = await invoke<string>('get_home_dir');
+        const date = new Date().toISOString().slice(0, 10);
+        savePath = `${home}/budget-data-${date}.json`;
+      }
+      await invoke('save_data', { path: savePath, data: json });
+      setJsonExportStatus(`Saved: ${savePath.split('/').pop()}`);
+    } catch (e) {
+      setJsonExportStatus(`Error: ${String(e)}`);
+    }
+    setTimeout(() => setJsonExportStatus(null), 8000);
+  }
+
+  async function doEncryptedExport() {
+    if (!archivePassword || archivePassword !== archivePasswordConfirm) return;
+    setShowEncryptArchiveModal(false);
+    setJsonExportStatus('Encrypting…');
+    try {
+      const json = JSON.stringify(getData(), null, 2);
+      const encrypted = await encryptData(json, archivePassword);
+      let savePath: string | null = null;
+      try {
+        savePath = await save({
+          defaultPath: 'budget-data-encrypted.json',
+          filters: [{ name: 'JSON File', extensions: ['json'] }],
+        });
+      } catch (_e) {}
+      if (!savePath) {
+        const home = await invoke<string>('get_home_dir');
+        const date = new Date().toISOString().slice(0, 10);
+        savePath = `${home}/budget-data-encrypted-${date}.json`;
+      }
+      await invoke('save_data', { path: savePath, data: encrypted });
+      setJsonExportStatus(`Encrypted archive saved: ${savePath.split('/').pop()}`);
+    } catch (e) {
+      setJsonExportStatus(`Error: ${String(e)}`);
+    }
+    setArchivePassword('');
+    setArchivePasswordConfirm('');
+    setTimeout(() => setJsonExportStatus(null), 8000);
   }
 
   const filePath = getFilePath();
@@ -1039,7 +1097,51 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
           </div>
         </div>
 
+        <div style={{ marginBottom: '1.25rem' }}>
+          <p style={{ fontSize: '0.85rem', opacity: 0.8, marginBottom: '0.75rem' }}>
+            Save a copy of your data as a JSON file. Use the unencrypted version for backups you can read directly, or create an encrypted copy with a separate password.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={handleExportUnencryptedJson} disabled={!!jsonExportStatus}>
+              Create Unencrypted JSON Archive
+            </button>
+            <button className="btn btn-ghost" onClick={() => { setShowEncryptArchiveModal(true); setArchivePassword(''); setArchivePasswordConfirm(''); }} disabled={!!jsonExportStatus}>
+              Create Encrypted JSON Archive
+            </button>
+            {jsonExportStatus && <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>{jsonExportStatus}</span>}
+          </div>
+        </div>
+
       </div>
+
+      {showEncryptArchiveModal && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 360 }}>
+            <h3 style={{ marginTop: 0 }}>Encrypt Archive</h3>
+            <p style={{ fontSize: '0.85rem', opacity: 0.8 }}>Set a password for this archive. This does not affect your current file.</p>
+            <div className="field" style={{ marginBottom: '0.75rem' }}>
+              <label>Password</label>
+              <input type="password" value={archivePassword} onChange={(e) => setArchivePassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && doEncryptedExport()} autoFocus />
+            </div>
+            <div className="field" style={{ marginBottom: '1rem' }}>
+              <label>Confirm password</label>
+              <input type="password" value={archivePasswordConfirm} onChange={(e) => setArchivePasswordConfirm(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && doEncryptedExport()} />
+            </div>
+            {archivePassword && archivePasswordConfirm && archivePassword !== archivePasswordConfirm && (
+              <p style={{ color: 'var(--red)', fontSize: '0.82rem', marginBottom: '0.5rem' }}>Passwords do not match.</p>
+            )}
+            <div className="modal-actions">
+              <button className="btn btn-primary" onClick={doEncryptedExport}
+                disabled={!archivePassword || archivePassword !== archivePasswordConfirm}>
+                Save Encrypted Archive
+              </button>
+              <button className="btn btn-ghost" onClick={() => setShowEncryptArchiveModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

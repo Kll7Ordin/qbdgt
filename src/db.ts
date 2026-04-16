@@ -152,6 +152,22 @@ export interface AICategoryFeedback {
   outcome: 'accepted' | 'rejected';
 }
 
+export interface ExperimentalBudgetItem {
+  categoryId: number;
+  categoryName: string;
+  groupId: number | null;
+  groupName: string | null;
+  targetAmount: number;
+  sortOrder?: number;
+}
+
+export interface ExperimentalBudget {
+  id: number;
+  name: string;
+  createdAt: string;
+  items: ExperimentalBudgetItem[];
+}
+
 export interface AppData {
   nextId: number;
   categories: Category[];
@@ -170,6 +186,7 @@ export interface AppData {
   aiSettings?: AISettings;
   customParsers?: CustomParser[];
   aiCategoryFeedback?: AICategoryFeedback[];
+  experimentalBudgets?: ExperimentalBudget[];
 }
 
 function emptyData(): AppData {
@@ -186,6 +203,7 @@ function emptyData(): AppData {
     savingsSchedules: [],
     recurringTemplates: [],
     splitTemplates: [],
+    experimentalBudgets: [],
   };
 }
 
@@ -269,6 +287,7 @@ export async function loadFromFile(path: string, password?: string): Promise<voi
   if (!data.recurringTemplates) data.recurringTemplates = [];
   if (!data.splitTemplates) data.splitTemplates = [];
   if (!data.budgetGroups) data.budgetGroups = [];
+  if (!data.experimentalBudgets) data.experimentalBudgets = [];
   // Normalize transaction fields that may be missing in older records
   for (const t of data.transactions) {
     if (t.instrument == null) t.instrument = '';
@@ -958,4 +977,32 @@ export function executeCustomParser(
     console.error('[CustomParser] Error executing parser:', e);
     throw e;
   }
+}
+
+// --- Experimental Budgets ---
+export function getExperimentalBudgets(): ExperimentalBudget[] {
+  return data.experimentalBudgets ?? [];
+}
+
+export async function saveExperimentalBudget(budget: Omit<ExperimentalBudget, 'id'> & { id?: number }): Promise<ExperimentalBudget> {
+  if (!data.experimentalBudgets) data.experimentalBudgets = [];
+  if (budget.id != null) {
+    const idx = data.experimentalBudgets.findIndex((b) => b.id === budget.id);
+    if (idx >= 0) {
+      const updated = { ...budget, id: budget.id! } as ExperimentalBudget;
+      data.experimentalBudgets[idx] = updated;
+      await persist();
+      return updated;
+    }
+  }
+  const nb: ExperimentalBudget = { ...budget, id: nextId() };
+  data.experimentalBudgets.push(nb);
+  await persist();
+  return nb;
+}
+
+export async function deleteExperimentalBudget(id: number): Promise<void> {
+  if (!data.experimentalBudgets) return;
+  data.experimentalBudgets = data.experimentalBudgets.filter((b) => b.id !== id);
+  await persist();
 }
