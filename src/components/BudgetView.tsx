@@ -636,28 +636,28 @@ export function BudgetView({ search = '' }: { search?: string }) {
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${occasionalGroupId != null ? (incomeRows.length > 0 ? 5 : 3) : (incomeRows.length > 0 ? 4 : 2)}, 1fr)`, gap: '0.5rem' }}>
             <div className="summary-card">
               <span className="summary-label">Spent</span>
-              <span className="summary-value" style={{ color: 'var(--text)' }}>${formatAmount(totalSpent, 0)}</span>
+              <span className="summary-value" style={{ color: '#3b82f6' }}>${formatAmount(totalSpent, 0)}</span>
             </div>
             <div className="summary-card">
               <span className="summary-label">Remaining</span>
-              <span className="summary-value" style={{ color: 'var(--text)' }}>${formatAmount(totalTarget - totalSpent, 0)}</span>
+              <span className="summary-value" style={{ color: '#b45309' }}>${formatAmount(totalTarget - totalSpent, 0)}</span>
             </div>
             {occasionalGroupId != null && (
               <div className="summary-card">
                 <span className="summary-label">Spent Savings</span>
-                <span className="summary-value" style={{ color: 'var(--text)' }}>${formatAmount(spentFromSavings, 0)}</span>
+                <span className="summary-value" style={{ color: '#1d4ed8' }}>${formatAmount(spentFromSavings, 0)}</span>
               </div>
             )}
             {incomeRows.length > 0 && (
               <div className="summary-card">
                 <span className="summary-label">Received</span>
-                <span className="summary-value" style={{ color: 'var(--text)' }}>${formatAmount(totalReceived, 0)}</span>
+                <span className="summary-value" style={{ color: '#3b82f6' }}>${formatAmount(totalReceived, 0)}</span>
               </div>
             )}
             {incomeRows.length > 0 && (
               <div className="summary-card">
                 <span className="summary-label">Yet to Receive</span>
-                <span className="summary-value" style={{ color: 'var(--text)' }}>${formatAmount(yetToReceive, 0)}</span>
+                <span className="summary-value" style={{ color: '#b45309' }}>${formatAmount(yetToReceive, 0)}</span>
               </div>
             )}
           </div>
