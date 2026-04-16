@@ -312,7 +312,7 @@ textarea:focus {
 
 .data-table th {
   text-align: left;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -324,9 +324,11 @@ textarea:focus {
 }
 
 .data-table td {
-  padding: 0.55rem 0.75rem;
+  padding: 0.45rem 0.75rem;
   border-bottom: 1px solid var(--border-2);
   vertical-align: middle;
+  font-size: 0.93rem;
+  font-weight: 600;
   color: var(--text);
 }
 .data-table td.positive { color: var(--green); }
@@ -342,8 +344,7 @@ textarea:focus {
 .data-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  font-family: 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.82rem;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .data-table tr.txn-row-uncat-alt td {

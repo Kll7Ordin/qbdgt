@@ -645,7 +645,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
             {occasionalGroupId != null && (
               <div className="summary-card">
                 <span className="summary-label">Spent Savings</span>
-                <span className="summary-value" style={{ color: '#1d4ed8' }}>${formatAmount(spentFromSavings, 0)}</span>
+                <span className="summary-value" style={{ color: '#1e3a8a' }}>${formatAmount(spentFromSavings, 0)}</span>
               </div>
             )}
             {incomeRows.length > 0 && (
@@ -718,7 +718,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
                       </svg>
                     )}
                   </td>
-                  <td colSpan={COLS - 1} style={{ padding: '0.4rem 0.75rem', background: 'var(--bg-3)', borderTop: '1px solid var(--border)' }}>
+                  <td colSpan={COLS - 1} style={{ padding: '0.4rem 0.75rem 0.4rem 0.3rem', background: 'var(--bg-3)', borderTop: '1px solid var(--border)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         {group && editingGroupId === group.id ? (
@@ -727,12 +727,12 @@ export function BudgetView({ search = '' }: { search?: string }) {
                             onClick={(e) => e.stopPropagation()} autoFocus
                             style={{ maxWidth: 200, padding: '0.2rem 0.4rem', fontSize: '0.9rem' }} />
                         ) : group ? (
-                          <strong style={{ cursor: 'pointer', fontSize: '0.88rem' }}
+                          <strong style={{ cursor: 'pointer', fontSize: '0.97rem' }}
                             onClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}>
                             {group.name}
                           </strong>
                         ) : (
-                          <span style={{ opacity: 0.6, fontSize: '0.88rem' }}>Ungrouped</span>
+                          <span style={{ opacity: 0.6, fontSize: '0.97rem' }}>Ungrouped</span>
                         )}
                         {group && (editGroupNoteId === group.id ? (
                           <input
