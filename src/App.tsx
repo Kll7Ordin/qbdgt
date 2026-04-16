@@ -30,7 +30,7 @@ const ZOOM_KEY = 'budget-app-zoom';
 
 function App() {
   const [ready, setReady] = useState(false);
-  const [tab, setTab] = useState<Tab>('import');
+  const [tab, setTab] = useState<Tab>('budget');
   const [zoom, setZoom] = useState(() => {
     const stored = localStorage.getItem(ZOOM_KEY);
     const val = stored ? parseFloat(stored) : 1;
