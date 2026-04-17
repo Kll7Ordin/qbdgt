@@ -164,105 +164,103 @@ struct OllamaInstallProgress {
 
 #[tauri::command]
 async fn install_ollama(app: tauri::AppHandle) -> Result<String, String> {
-    // Ollama now ships as a .tgz on Linux and a .zip on macOS.
-    // We download the tarball, extract the `ollama` binary, and place it locally.
-    #[cfg(target_os = "linux")]
-    let url = if cfg!(target_arch = "aarch64") {
-        "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-arm64.tar.zst"
-    } else {
-        "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst"
-    };
-
-    #[cfg(not(any(target_os = "linux")))]
-    return Err("Automatic install is only supported on Linux. On macOS/Windows, install Ollama from https://ollama.com then click Start Ollama.".to_string());
-
-    let _ = app.emit("ollama_progress", OllamaInstallProgress {
-        status: "Connecting…".into(),
-        percent: 0,
-    });
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let response = client.get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("Download failed: HTTP {}", response.status()));
-    }
-
-    let total = response.content_length().unwrap_or(0);
-    let mut downloaded: u64 = 0;
-    let mut bytes: Vec<u8> = if total > 0 { Vec::with_capacity(total as usize) } else { Vec::new() };
-    let mut stream = response.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        downloaded += chunk.len() as u64;
-        bytes.extend_from_slice(&chunk);
-        let pct = if total > 0 { (downloaded * 100 / total) as u32 } else { 0 };
-        let _ = app.emit("ollama_progress", OllamaInstallProgress {
-            status: format!("Downloading… {:.1} MB", downloaded as f64 / 1_048_576.0),
-            percent: pct,
-        });
-    }
-
-    let _ = app.emit("ollama_progress", OllamaInstallProgress {
-        status: "Extracting…".into(),
-        percent: 99,
-    });
-
-    // Write tarball to temp file, then extract with system tar (zstd format)
-    let archive_path = std::env::temp_dir().join("ollama-install.tar.zst");
-    fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
-
-    let binary_dir = local_ollama_path().parent().unwrap().to_path_buf();
-    fs::create_dir_all(&binary_dir).map_err(|e| e.to_string())?;
-
-    // Try --zstd flag first (GNU tar 1.31+), fall back to piping through zstd
-    let tar_out = std::process::Command::new("tar")
-        .args(["--zstd", "-xf", archive_path.to_str().unwrap(), "-C", binary_dir.to_str().unwrap()])
-        .output()
-        .map_err(|e| format!("Extraction failed: {}", e))?;
-
-    fs::remove_file(&archive_path).ok();
-
-    if !tar_out.status.success() {
-        return Err(format!("Extraction failed: {}", String::from_utf8_lossy(&tar_out.stderr)));
-    }
-
-    // The tarball extracts to bin/ollama — find it
-    let binary_path = binary_dir.join("bin").join("ollama");
-    if !binary_path.exists() {
-        // Fallback: maybe it extracted directly as "ollama"
-        let alt = binary_dir.join("ollama");
-        if !alt.exists() {
-            return Err("Could not find ollama binary after extraction".to_string());
-        }
-        let dest = local_ollama_path();
-        fs::rename(&alt, &dest).map_err(|e| e.to_string())?;
-    }
-
-    let final_path = if binary_path.exists() { binary_path } else { local_ollama_path() };
-
-    #[cfg(unix)]
+    #[cfg(not(target_os = "linux"))]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&final_path).map_err(|e| e.to_string())?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&final_path, perms).map_err(|e| e.to_string())?;
+        let _ = app;
+        return Err("Automatic install is only supported on Linux. On Windows, install Ollama from https://ollama.com then click Start Ollama.".to_string());
     }
 
-    let _ = app.emit("ollama_progress", OllamaInstallProgress {
-        status: "Install complete!".into(),
-        percent: 100,
-    });
+    #[cfg(target_os = "linux")]
+    {
+        let url = if cfg!(target_arch = "aarch64") {
+            "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-arm64.tar.zst"
+        } else {
+            "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst"
+        };
 
-    Ok(final_path.to_string_lossy().to_string())
+        let _ = app.emit("ollama_progress", OllamaInstallProgress {
+            status: "Connecting…".into(),
+            percent: 0,
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let response = client.get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Download failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Download failed: HTTP {}", response.status()));
+        }
+
+        let total = response.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut bytes: Vec<u8> = if total > 0 { Vec::with_capacity(total as usize) } else { Vec::new() };
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+            bytes.extend_from_slice(&chunk);
+            let pct = if total > 0 { (downloaded * 100 / total) as u32 } else { 0 };
+            let _ = app.emit("ollama_progress", OllamaInstallProgress {
+                status: format!("Downloading… {:.1} MB", downloaded as f64 / 1_048_576.0),
+                percent: pct,
+            });
+        }
+
+        let _ = app.emit("ollama_progress", OllamaInstallProgress {
+            status: "Extracting…".into(),
+            percent: 99,
+        });
+
+        let archive_path = std::env::temp_dir().join("ollama-install.tar.zst");
+        fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
+
+        let binary_dir = local_ollama_path().parent().unwrap().to_path_buf();
+        fs::create_dir_all(&binary_dir).map_err(|e| e.to_string())?;
+
+        let tar_out = std::process::Command::new("tar")
+            .args(["--zstd", "-xf", archive_path.to_str().unwrap(), "-C", binary_dir.to_str().unwrap()])
+            .output()
+            .map_err(|e| format!("Extraction failed: {}", e))?;
+
+        fs::remove_file(&archive_path).ok();
+
+        if !tar_out.status.success() {
+            return Err(format!("Extraction failed: {}", String::from_utf8_lossy(&tar_out.stderr)));
+        }
+
+        let binary_path = binary_dir.join("bin").join("ollama");
+        if !binary_path.exists() {
+            let alt = binary_dir.join("ollama");
+            if !alt.exists() {
+                return Err("Could not find ollama binary after extraction".to_string());
+            }
+            let dest = local_ollama_path();
+            fs::rename(&alt, &dest).map_err(|e| e.to_string())?;
+        }
+
+        let final_path = if binary_path.exists() { binary_path } else { local_ollama_path() };
+
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&final_path).map_err(|e| e.to_string())?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&final_path, perms).map_err(|e| e.to_string())?;
+        }
+
+        let _ = app.emit("ollama_progress", OllamaInstallProgress {
+            status: "Install complete!".into(),
+            percent: 100,
+        });
+
+        Ok(final_path.to_string_lossy().to_string())
+    }
 }
 
 #[tauri::command]
