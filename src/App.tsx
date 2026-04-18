@@ -274,7 +274,7 @@ function App() {
           >
             <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>🦙</span>
           </button>
-          <span className="app-version">v1.2</span>
+          <span className="app-version">v1.3</span>
         </div>
       </nav>
       {searchOpen && (
