@@ -26,9 +26,13 @@ import {
   enableEncryption,
   changeEncryptionPassword,
   disableEncryption,
+  deleteCustomParser,
+  saveExperimentalBudget,
   type RecurringTemplate,
   type Transaction,
 } from '../db';
+import { parseWorkbook } from '../parsers/xlsx';
+import * as XLSX from 'xlsx';
 import { recategorizeAll, bulkApplySplitRule, bulkCategorizeByDescriptor } from '../logic/categorize';
 import { createReadableArchive } from '../utils/export';
 import { encryptData } from '../utils/crypto';
@@ -1394,14 +1398,121 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
         </div>
       </div>
 
-      {/* ── Custom Import Parsers ── */}
-      <div id="settings-parsers" className="card" style={{ marginBottom: '1rem' }}>
-        <div className="section-title">Custom Import Parsers</div>
+      {/* ── Import Budget ── */}
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="section-title">Import Budget</div>
         <p style={{ fontSize: '0.85rem', opacity: 0.8, marginBottom: '0.75rem' }}>
-          Upload a sample export file from your bank and the AI will generate a custom parser for it.
-          Requires the AI assistant to be connected.
+          Upload a budget spreadsheet to create a draft in <strong>Experimental Budgets</strong>. From there you can review it and apply it to a live month manually.
         </p>
-        <ParserGenerator />
+        <p style={{ fontSize: '0.8rem', opacity: 0.65, marginBottom: '0.75rem' }}>
+          Format: Sheet 1 — two columns: <code>Category</code>, <code>Monthly Target</code>. Sheet 2 (optional) — <code>Pattern</code>, <code>Category</code> (keyword rules).
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              const wb = XLSX.utils.book_new();
+              const budgetSheet = XLSX.utils.aoa_to_sheet([
+                ['Category', 'Monthly Target'],
+                ['Groceries', 800],
+                ['Gas', 200],
+                ['Dining', 300],
+                ['Subscriptions', 50],
+                ['Personal Care', 100],
+              ]);
+              const rulesSheet = XLSX.utils.aoa_to_sheet([
+                ['Pattern', 'Category'],
+                ['netflix', 'Subscriptions'],
+                ['spotify', 'Subscriptions'],
+                ['loblaws', 'Groceries'],
+              ]);
+              XLSX.utils.book_append_sheet(wb, budgetSheet, 'Budget');
+              XLSX.utils.book_append_sheet(wb, rulesSheet, 'Rules');
+              const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+              const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'budget-template.xlsx'; a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            ↓ Download sample template
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ fontSize: '0.85rem' }}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const buf = await file.arrayBuffer();
+                const { budgetLines } = parseWorkbook(buf);
+                if (budgetLines.length === 0) { alert('No budget lines found in Sheet 1.'); return; }
+                const { categories } = getData();
+                const existingNames = new Set(categories.map((c) => c.name.toLowerCase()));
+                for (const line of budgetLines) {
+                  if (!existingNames.has(line.categoryName.toLowerCase())) {
+                    await addCategory(line.categoryName);
+                  }
+                }
+                const { categories: allCats } = getData();
+                const catMap = new Map(allCats.map((c) => [c.name.toLowerCase(), c.id!]));
+                const items = budgetLines
+                  .filter((l) => catMap.has(l.categoryName.toLowerCase()))
+                  .map((l) => ({
+                    categoryId: catMap.get(l.categoryName.toLowerCase())!,
+                    categoryName: l.categoryName,
+                    groupId: null,
+                    groupName: null,
+                    targetAmount: l.targetAmount,
+                  }));
+                await saveExperimentalBudget({
+                  name: file.name.replace(/\.[^.]+$/, ''),
+                  createdAt: new Date().toISOString(),
+                  items,
+                });
+                alert(`Imported ${items.length} budget lines as an Experimental Budget. Go to Exp. Budgets to review and apply.`);
+                e.target.value = '';
+              } catch (err) {
+                alert(`Import failed: ${String(err)}`);
+              }
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ── Bank CSV Formats ── */}
+      <div id="settings-parsers" className="card" style={{ marginBottom: '1rem' }}>
+        <div className="section-title">Bank CSV Formats</div>
+        <p style={{ fontSize: '0.85rem', opacity: 0.8, marginBottom: '0.75rem' }}>
+          The Bank CSV button in Import will try each format below in order until one produces results.
+          Add a new format by uploading a sample file — the AI will generate a parser for it (requires Ollama).
+        </p>
+
+        {/* Built-in parser */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+          <span style={{ flex: 1, fontWeight: 500 }}>Scotia-style CSV</span>
+          <span style={{ opacity: 0.55 }}>Card / Chequing</span>
+          <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>Date, Description, Sub-description, Type, Amount</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.4 }}>built-in</span>
+        </div>
+
+        {/* Custom parsers */}
+        {(data.customParsers ?? []).map((p: { id: string; name: string; instrument: string; sampleLines: string }) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem' }}>
+            <span style={{ flex: 1, fontWeight: 500 }}>{p.name}</span>
+            <span style={{ opacity: 0.55 }}>{p.instrument}</span>
+            <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>{p.sampleLines.split('\n')[0].slice(0, 50)}</span>
+            <button className="btn btn-danger btn-sm" onClick={async () => { await deleteCustomParser(p.id); }}>Delete</button>
+          </div>
+        ))}
+
+        <div style={{ marginTop: '0.75rem' }}>
+          <ParserGenerator />
+        </div>
       </div>
 
       {/* ── Export ── */}

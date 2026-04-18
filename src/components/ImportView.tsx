@@ -1,22 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { invoke } from '@tauri-apps/api/core';
 import {
   getData,
+  subscribe,
   bulkAddTransactions,
   setSplits,
   updateTransaction,
-  addCategory,
-  upsertBudget,
-  addCategoryRule,
   addAmazonOrders,
-  getCustomParsers,
   executeCustomParser,
   type Transaction,
   type AmazonOrder,
 } from '../db';
 import { parseBankCsv } from '../parsers/csv';
-import { parseWorkbook, toBudgets, toRules } from '../parsers/xlsx';
 import { parseAmazonOrders } from '../parsers/amazon';
 import { parsePaypalPaste } from '../parsers/paypal';
 import { detectDuplicates } from '../logic/duplicates';
@@ -24,8 +21,9 @@ import { categorizeTransactionsInPlace } from '../logic/categorize';
 import { matchPaypalTransactions, confirmPaypalMatch, discardPaypalTransactions, type PaypalMatchCandidate } from '../logic/matching';
 import { findRefundCandidates, applyRefundToOriginalMonth, type RefundCandidate } from '../logic/refunds';
 import { formatAmount } from '../utils/format';
+import { ParserGenerator } from './ParserGenerator';
 
-type ImportType = 'csv' | 'xlsx' | 'amazon' | 'paypal' | 'custom';
+type ImportType = 'csv' | 'amazon' | 'paypal';
 
 interface ImportResult {
   parsed: number;
@@ -37,12 +35,11 @@ interface ImportResult {
 }
 
 export function ImportView() {
+  const appData = useSyncExternalStore(subscribe, getData, getData);
+  const customParsers = appData.customParsers ?? [];
   const [importType, setImportType] = useState<ImportType>('csv');
   const [pasteText, setPasteText] = useState('');
-  const [xlsxMonth, setXlsxMonth] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [showParserForm, setShowParserForm] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -55,7 +52,6 @@ export function ImportView() {
   const [refundPrompts, setRefundPrompts] = useState<RefundCandidate[]>([]);
   const [paypalFuzzy, setPaypalFuzzy] = useState<PaypalMatchCandidate[]>([]);
   const [paypalUnmatched, setPaypalUnmatched] = useState<Transaction[]>([]);
-  const [customParserId, setCustomParserId] = useState<string>('');
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const importTypeRef = useRef(importType);
@@ -225,56 +221,26 @@ export function ImportView() {
         text = await file.text();
         name = file.name;
       }
+
+      // Try built-in parser first
       const txns = parseBankCsv(text, name);
-      if (txns.length === 0) throw new Error('No transactions parsed from CSV');
-      await insertAndReport(txns, 'bank_csv');
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleXlsxImport(fileArg?: File) {
-    const file = fileArg ?? fileRef.current?.files?.[0];
-    if (!file) return;
-    reset();
-    setBusy(true);
-    try {
-      const buf = await file.arrayBuffer();
-      const { budgetLines, ruleLines } = parseWorkbook(buf);
-
-      const catNames = new Set([
-        ...budgetLines.map((l) => l.categoryName),
-        ...ruleLines.map((l) => l.categoryName),
-      ]);
-
-      const { categories } = getData();
-      const existingNames = new Set(categories.map((c) => c.name.toLowerCase()));
-      for (const name of catNames) {
-        if (!existingNames.has(name.toLowerCase())) {
-          await addCategory(name);
-        }
+      if (txns.length > 0) {
+        await insertAndReport(txns, 'bank_csv');
+        return;
       }
 
-      const { categories: allCats } = getData();
-      const catMap = new Map(allCats.map((c) => [c.name.toLowerCase(), c.id]));
-
-      const budgets = toBudgets(budgetLines, xlsxMonth, catMap);
-      for (const b of budgets) {
-        await upsertBudget(b.month, b.categoryId, b.targetAmount);
+      // Try each custom parser in order
+      for (const parser of customParsers) {
+        try {
+          const customTxns = executeCustomParser(parser.code, text, name);
+          if (customTxns.length > 0) {
+            await insertAndReport(customTxns, `custom_${parser.id}`);
+            return;
+          }
+        } catch { /* try next */ }
       }
 
-      const rules = toRules(ruleLines, catMap);
-      for (const r of rules) {
-        await addCategoryRule(r);
-      }
-
-      setResult({
-        parsed: budgetLines.length + ruleLines.length,
-        inserted: budgets.length + rules.length,
-        duplicates: 0,
-      });
+      throw new Error('No transactions parsed. Check the file format, or add a parser for your bank in Settings → Bank CSV Formats.');
     } catch (e) {
       setError(String(e));
     } finally {
@@ -375,26 +341,6 @@ export function ImportView() {
     }
   }
 
-  async function handleCustomImport(fileArg?: File) {
-    const file = fileArg ?? fileRef.current?.files?.[0];
-    if (!file || !customParserId) return;
-    const parsers = getCustomParsers();
-    const parser = parsers.find((p) => p.id === customParserId);
-    if (!parser) return;
-    reset();
-    setBusy(true);
-    try {
-      const text = await file.text();
-      const txns = executeCustomParser(parser.code, text, file.name);
-      if (txns.length === 0) throw new Error('No transactions parsed — check that you selected the right file and parser.');
-      await insertAndReport(txns, `custom_${parser.id}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handlePasteImport(type: 'paypal') {
     if (!pasteText.trim()) return;
     reset();
@@ -418,30 +364,43 @@ export function ImportView() {
 
       <div className="card">
         <div className="row" style={{ marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-          {(['csv', 'xlsx', 'amazon', 'paypal'] as ImportType[]).map((t) => (
+          {(['csv', 'amazon', 'paypal'] as ImportType[]).map((t) => (
             <button
               key={t}
               className={`btn ${importType === t ? 'btn-primary' : 'btn-ghost'} btn-sm`}
               onClick={() => { setImportType(t); reset(); }}
             >
-              {t === 'csv' ? 'Bank CSV' : t === 'xlsx' ? 'Workbook' : t === 'amazon' ? 'Amazon' : 'PayPal'}
+              {t === 'csv' ? 'Bank CSV' : t === 'amazon' ? 'Amazon' : 'PayPal'}
             </button>
           ))}
-          {getCustomParsers().length > 0 && (
-            <button
-              className={`btn ${importType === 'custom' ? 'btn-primary' : 'btn-ghost'} btn-sm`}
-              onClick={() => { setImportType('custom'); reset(); }}
-            >
-              Custom
-            </button>
-          )}
         </div>
 
         {importType === 'csv' && (
           <>
-            <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>
-              Scotia-style CSV: Date, Description, Sub-description, Type, Amount
-            </p>
+            {/* Supported formats list */}
+            <div style={{ marginBottom: '0.75rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>Supported formats:</div>
+              <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
+                • <strong>Scotia-style</strong> (built-in) — Date, Description, Sub-description, Type, Amount
+              </div>
+              {customParsers.map((p) => (
+                <div key={p.id} style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
+                  • <strong>{p.name}</strong> — {p.sampleLines.split('\n')[0].slice(0, 60)}
+                </div>
+              ))}
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ marginTop: '0.35rem', fontSize: '0.8rem' }}
+                onClick={() => setShowParserForm((v) => !v)}
+              >
+                {showParserForm ? '− Cancel' : '+ Add format for my bank'}
+              </button>
+            </div>
+            {showParserForm && (
+              <div style={{ marginBottom: '0.75rem', padding: '0.65rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                <ParserGenerator onParsersChange={() => setShowParserForm(false)} />
+              </div>
+            )}
             <div
               onClick={() => fileRef.current?.click()}
               style={{
@@ -462,22 +421,6 @@ export function ImportView() {
               <div style={{ fontSize: '0.8rem', opacity: 0.5 }}>or click to browse</div>
             </div>
             <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={() => handleCsvImport()} />
-          </>
-        )}
-
-        {importType === 'xlsx' && (
-          <>
-            <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>
-              Sheet 1: budget lines (category, target). Sheet 2: keyword rules (pattern, category).
-            </p>
-            <div className="field">
-              <label>Budget month</label>
-              <input type="month" value={xlsxMonth} onChange={(e) => setXlsxMonth(e.target.value)} />
-            </div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" />
-            <button className="btn btn-primary" onClick={() => handleXlsxImport()} disabled={busy} style={{ marginTop: '0.5rem' }}>
-              Import Workbook
-            </button>
           </>
         )}
 
@@ -517,48 +460,6 @@ export function ImportView() {
           </>
         )}
 
-        {importType === 'custom' && (() => {
-          const parsers = getCustomParsers();
-          if (parsers.length === 0) return (
-            <p style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-              No custom parsers yet. Go to Settings → Custom Import Parsers to create one.
-            </p>
-          );
-          const selected = parsers.find((p) => p.id === customParserId);
-          return (
-            <>
-              <div className="field" style={{ marginBottom: '0.5rem' }}>
-                <label>Select parser</label>
-                <select
-                  value={customParserId}
-                  onChange={(e) => setCustomParserId(e.target.value)}
-                  style={{ padding: '0.5rem 0.75rem' }}
-                >
-                  <option value="">— choose parser —</option>
-                  {parsers.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.instrument})</option>
-                  ))}
-                </select>
-              </div>
-              {selected && (
-                <div style={{ fontSize: '0.8rem', opacity: 0.6, marginBottom: '0.5rem' }}>
-                  Sample: <code style={{ background: 'var(--input-bg)', padding: '0 3px', borderRadius: 2 }}>
-                    {selected.sampleLines.split('\n')[0].slice(0, 60)}
-                  </code>
-                </div>
-              )}
-              <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" style={{ marginBottom: '0.5rem' }} />
-              <button
-                className="btn btn-primary"
-                onClick={() => handleCustomImport()}
-                disabled={busy || !customParserId}
-                style={{ display: 'block' }}
-              >
-                Import with {selected?.name ?? 'selected parser'}
-              </button>
-            </>
-          );
-        })()}
       </div>
 
       {dupReview && (

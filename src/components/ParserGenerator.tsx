@@ -1,11 +1,7 @@
 import { useState, useRef } from 'react';
-import { useSyncExternalStore } from 'react';
 import {
-  getData,
-  subscribe,
   getAISettings,
   saveCustomParser,
-  deleteCustomParser,
   executeCustomParser,
   type CustomParser,
 } from '../db';
@@ -16,8 +12,6 @@ interface Props {
 }
 
 export function ParserGenerator({ onParsersChange }: Props) {
-  const appData = useSyncExternalStore(subscribe, getData, getData);
-  const parsers = appData.customParsers ?? [];
   const [showCreate, setShowCreate] = useState(false);
   const [parserName, setParserName] = useState('');
   const [instrument, setInstrument] = useState('Card');
@@ -106,45 +100,9 @@ export function ParserGenerator({ onParsersChange }: Props) {
     setTestResult(null);
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this parser?')) return;
-    await deleteCustomParser(id);
-    onParsersChange?.();
-  }
 
   return (
     <div>
-      {/* Saved parsers list */}
-      {parsers.length > 0 && (
-        <div style={{ marginBottom: '0.75rem' }}>
-          {parsers.map((p) => (
-            <div
-              key={p.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.4rem 0',
-                borderBottom: '1px solid var(--border)',
-                fontSize: '0.875rem',
-              }}
-            >
-              <span style={{ flex: 1, fontWeight: 500 }}>{p.name}</span>
-              <span style={{ opacity: 0.55 }}>{p.instrument}</span>
-              <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>
-                {new Date(p.createdAt).toLocaleDateString()}
-              </span>
-              <button
-                className="btn btn-danger btn-sm"
-                onClick={() => handleDelete(p.id)}
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {!showCreate && (
         <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(true)}>
           + Create Parser from Sample File
