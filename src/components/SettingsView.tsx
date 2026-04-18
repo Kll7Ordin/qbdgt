@@ -65,6 +65,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
   const [pendingEncryptedPath, setPendingEncryptedPath] = useState<string | null>(null);
   const [showCategoriesScreen, setShowCategoriesScreen] = useState(false);
   const [showRulesScreen, setShowRulesScreen] = useState(false);
+  const [selectedParser, setSelectedParser] = useState<{ id: string; name: string; instrument: string; code: string; sampleLines: string; createdAt: string } | null>(null);
 
   // Register a custom back handler when sub-screens are open so the tab bar back button closes them
   useEffect(() => {
@@ -72,10 +73,12 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
       onRegisterBack?.(() => setShowCategoriesScreen(false));
     } else if (showRulesScreen) {
       onRegisterBack?.(() => setShowRulesScreen(false));
+    } else if (selectedParser != null) {
+      onRegisterBack?.(() => setSelectedParser(null));
     } else {
       onRegisterBack?.(null);
     }
-  }, [showCategoriesScreen, showRulesScreen, onRegisterBack]);
+  }, [showCategoriesScreen, showRulesScreen, selectedParser, onRegisterBack]);
 
   const [newCat, setNewCat] = useState('');
   const [newPattern, setNewPattern] = useState('');
@@ -1425,12 +1428,18 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
         </div>
 
         {/* Custom parsers */}
-        {(data.customParsers ?? []).map((p: { id: string; name: string; instrument: string; sampleLines: string }) => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem' }}>
+        {(data.customParsers ?? []).map((p: { id: string; name: string; instrument: string; code: string; sampleLines: string; createdAt: string }) => (
+          <div
+            key={p.id}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem', cursor: 'pointer' }}
+            onClick={() => setSelectedParser(p)}
+          >
             <span style={{ flex: 1, fontWeight: 500 }}>{p.name}</span>
             <span style={{ opacity: 0.55 }}>{p.instrument}</span>
-            <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>{p.sampleLines.split('\n')[0].slice(0, 50)}</span>
-            <button className="btn btn-danger btn-sm" onClick={async () => { await deleteCustomParser(p.id); }}>Delete</button>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={async (e) => { e.stopPropagation(); await deleteCustomParser(p.id); }}
+            >Delete</button>
           </div>
         ))}
 
@@ -1570,6 +1579,48 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
           </div>
         </div>,
         document.body,
+      )}
+
+      {/* Parser detail full-screen overlay (below tab bar) */}
+      {selectedParser != null && (
+        <div style={{ position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, zIndex: 200, background: 'var(--bg)', overflowY: 'auto', padding: '1.5rem clamp(0.75rem, 6vw, 8rem)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+            <button className="btn btn-ghost" onClick={() => setSelectedParser(null)}>← Back</button>
+            <h1 style={{ margin: 0, fontSize: '1.45rem', fontWeight: 700 }}>Parser: {selectedParser.name}</h1>
+          </div>
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '0.4rem 0.5rem', opacity: 0.6, width: 120 }}>Name</td>
+                  <td style={{ padding: '0.4rem 0.5rem', fontWeight: 500 }}>{selectedParser.name}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '0.4rem 0.5rem', opacity: 0.6 }}>Instrument</td>
+                  <td style={{ padding: '0.4rem 0.5rem' }}>{selectedParser.instrument || '—'}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '0.4rem 0.5rem', opacity: 0.6 }}>Created</td>
+                  <td style={{ padding: '0.4rem 0.5rem' }}>{selectedParser.createdAt ? new Date(selectedParser.createdAt).toLocaleString() : '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>Sample lines (first rows of the uploaded file)</div>
+            <pre style={{ fontSize: '0.78rem', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0, opacity: 0.85 }}>{selectedParser.sampleLines}</pre>
+          </div>
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>Parser code (JavaScript)</div>
+            <pre style={{ fontSize: '0.78rem', overflowX: 'auto', whiteSpace: 'pre', margin: 0, opacity: 0.85 }}>{selectedParser.code}</pre>
+          </div>
+          <button
+            className="btn btn-danger"
+            onClick={async () => { await deleteCustomParser(selectedParser.id); setSelectedParser(null); }}
+          >
+            Delete this parser
+          </button>
+        </div>
       )}
     </div>
   );

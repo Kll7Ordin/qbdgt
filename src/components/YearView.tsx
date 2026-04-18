@@ -7,15 +7,28 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  ArcElement,
   Filler,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Line } from 'react-chartjs-2';
+import { Line, Pie } from 'react-chartjs-2';
 import { formatAmount } from '../utils/format';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Filler, Title, Tooltip, Legend);
+
+const PIE_COLORS = [
+  '#3b82f6', '#ef4444', '#16a34a', '#d97706', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#f59e0b', '#10b981', '#6366f1',
+  '#f43f5e', '#84cc16', '#0ea5e9', '#a855f7', '#fb923c',
+];
+
+function mostRecentCompletedMonth(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 function monthsOfYear(year: number): string[] {
   return Array.from({ length: 12 }, (_, i) =>
@@ -46,6 +59,9 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
   const [year, setYear] = useState(new Date().getFullYear());
   const [selectedCats, setSelectedCats] = useState<number[]>([]);
   const [scope, setScope] = useState<'overall' | 'categories'>('overall');
+  const [pieScope, setPieScope] = useState<'ytd' | 'month'>('ytd');
+  const [piePeriod, setPiePeriod] = useState<string>(mostRecentCompletedMonth);
+  const [pieGrouping, setPieGrouping] = useState<'group' | 'category'>('group');
   const chartRef = useRef(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const appData = useSyncExternalStore(subscribe, getData);
@@ -178,6 +194,76 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
     if (i > lastDataIdx) return null;
     return d.planned;
   });
+
+  const pieChartData = useMemo(() => {
+    const { budgets: allBudgets, transactions: allTxns, transactionSplits: allSplits, budgetGroups } = appData;
+
+    const months = pieScope === 'ytd'
+      ? monthsOfYear(year).filter((m) => m < todayMonth)
+      : [piePeriod];
+    const monthSet = new Set(months);
+    if (monthSet.size === 0) return { labels: [], values: [] };
+
+    const incomeCatIds = new Set(
+      categories.filter((c) => c.isIncome || INCOME_CATEGORY_NAMES.has(c.name)).map((c) => c.id),
+    );
+
+    const splitsByTxn = new Map<number, typeof allSplits>();
+    for (const s of allSplits) {
+      const arr = splitsByTxn.get(s.transactionId) ?? [];
+      arr.push(s);
+      splitsByTxn.set(s.transactionId, arr);
+    }
+
+    const spendByCat = new Map<number, number>();
+    for (const t of allTxns) {
+      if (t.ignoreInBudget) continue;
+      const splits = splitsByTxn.get(t.id);
+      if (splits && splits.length > 0) {
+        for (const s of splits) {
+          const effectiveDate = s.txnDate ?? t.txnDate;
+          if (!monthSet.has(effectiveDate.slice(0, 7))) continue;
+          if (incomeCatIds.has(s.categoryId)) continue;
+          spendByCat.set(s.categoryId, (spendByCat.get(s.categoryId) ?? 0) + s.amount);
+        }
+      } else if (t.categoryId) {
+        if (!monthSet.has(t.txnDate.slice(0, 7))) continue;
+        if (incomeCatIds.has(t.categoryId)) continue;
+        spendByCat.set(t.categoryId, (spendByCat.get(t.categoryId) ?? 0) + t.amount);
+      }
+    }
+
+    if (pieGrouping === 'category') {
+      const entries = [...spendByCat.entries()]
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1]);
+      return {
+        labels: entries.map(([catId]) => categories.find((c) => c.id === catId)?.name ?? '?'),
+        values: entries.map(([, v]) => v),
+      };
+    } else {
+      const groupIdToName = new Map<number, string>((budgetGroups ?? []).map((g: { id: number; name: string }) => [g.id, g.name]));
+      const catToGroup = new Map<number, number | null>();
+      for (const b of allBudgets) {
+        if (!catToGroup.has(b.categoryId)) {
+          catToGroup.set(b.categoryId, b.groupId ?? null);
+        }
+      }
+      const spendByGroup = new Map<string, number>();
+      for (const [catId, amount] of spendByCat) {
+        const groupId = catToGroup.get(catId);
+        const groupName = groupId != null ? (groupIdToName.get(groupId) ?? 'Other') : 'Other';
+        spendByGroup.set(groupName, (spendByGroup.get(groupName) ?? 0) + amount);
+      }
+      const entries = [...spendByGroup.entries()]
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1]);
+      return {
+        labels: entries.map(([name]) => name),
+        values: entries.map(([, v]) => v),
+      };
+    }
+  }, [appData, year, pieScope, piePeriod, pieGrouping, categories, todayMonth]);
 
   // Data labels plugin — draws values on each point, avoiding overlaps
   const dataLabelsPlugin = {
@@ -456,6 +542,114 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
           />
         </div>
       </div>
+
+      <div className="section-title" style={{ marginTop: '1.5rem' }}>Spending Breakdown</div>
+
+      <div className="row" style={{ marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.25rem' }}>
+          <button
+            className={`btn btn-sm ${pieScope === 'ytd' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setPieScope('ytd')}
+          >
+            YTD
+          </button>
+          <button
+            className={`btn btn-sm ${pieScope === 'month' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setPieScope('month')}
+          >
+            Month
+          </button>
+        </div>
+        {pieScope === 'month' && (
+          <select
+            value={piePeriod}
+            onChange={(e) => setPiePeriod(e.target.value)}
+            style={{ fontSize: '0.85rem', padding: '0.2rem 0.4rem' }}
+          >
+            {monthsOfYear(year).filter((m) => m < todayMonth).map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        )}
+        <div style={{ display: 'flex', gap: '0.25rem' }}>
+          <button
+            className={`btn btn-sm ${pieGrouping === 'group' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setPieGrouping('group')}
+          >
+            By Group
+          </button>
+          <button
+            className={`btn btn-sm ${pieGrouping === 'category' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setPieGrouping('category')}
+          >
+            By Category
+          </button>
+        </div>
+      </div>
+
+      {pieChartData.labels.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', opacity: 0.5, padding: '2rem' }}>
+          No spending data for this period.
+        </div>
+      ) : (
+        <div className="card">
+          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ maxWidth: 360, width: '100%', aspectRatio: '1', flex: '0 0 auto' }}>
+              <Pie
+                data={{
+                  labels: pieChartData.labels,
+                  datasets: [{
+                    data: pieChartData.values,
+                    backgroundColor: PIE_COLORS.slice(0, pieChartData.labels.length),
+                    borderWidth: 1,
+                    borderColor: darkMode ? '#1a1d27' : '#fff',
+                  }],
+                }}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: true,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      backgroundColor: darkMode ? '#1a1d27' : '#fff',
+                      titleColor: darkMode ? '#e8ecf4' : '#1a2332',
+                      bodyColor: darkMode ? '#b0bdd0' : '#4a5568',
+                      borderColor: darkMode ? '#2e3347' : '#d0d5dd',
+                      borderWidth: 1,
+                      padding: 10,
+                      callbacks: {
+                        label: (ctx) => {
+                          const total = (ctx.dataset.data as number[]).reduce((s, v) => s + v, 0);
+                          const pct = total > 0 ? Math.round((ctx.parsed / total) * 100) : 0;
+                          return ` $${formatAmount(ctx.parsed, 0)} (${pct}%)`;
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              {pieChartData.labels.map((label, i) => {
+                const total = pieChartData.values.reduce((s, v) => s + v, 0);
+                const pct = total > 0 ? Math.round((pieChartData.values[i] / total) * 100) : 0;
+                return (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', fontSize: '0.875rem' }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                    <span style={{ flex: 1 }}>{label}</span>
+                    <span style={{ opacity: 0.6, fontSize: '0.8rem' }}>{pct}%</span>
+                    <span style={{ fontWeight: 600 }}>${formatAmount(pieChartData.values[i], 0)}</span>
+                  </div>
+                );
+              })}
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '0.875rem' }}>
+                <span>Total</span>
+                <span>${formatAmount(pieChartData.values.reduce((s, v) => s + v, 0), 0)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

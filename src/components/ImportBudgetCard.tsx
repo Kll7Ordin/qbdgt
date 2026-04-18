@@ -35,11 +35,41 @@ function downloadTemplate() {
   URL.revokeObjectURL(url);
 }
 
+function parseCsvBudget(text: string): { categoryName: string; targetAmount: number }[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length === 0) return [];
+  const firstLower = lines[0].toLowerCase();
+  const start = firstLower.includes('category') || firstLower.includes('target') ? 1 : 0;
+  const result: { categoryName: string; targetAmount: number }[] = [];
+  for (let i = start; i < lines.length; i++) {
+    // Handle quoted fields
+    const parts = lines[i].match(/(".*?"|[^,]+)(?=,|$)/g) ?? lines[i].split(',');
+    if (parts.length < 2) continue;
+    const name = parts[0].trim().replace(/^"|"$/g, '').trim();
+    const rawAmt = parts[1].trim().replace(/^"|"$/g, '').replace(/[$,\s]/g, '');
+    const amount = parseFloat(rawAmt);
+    if (name && !isNaN(amount) && amount >= 0) {
+      result.push({ categoryName: name, targetAmount: amount });
+    }
+  }
+  return result;
+}
+
 async function handleFile(file: File, onImported?: () => void) {
   try {
-    const buf = await file.arrayBuffer();
-    const { budgetLines } = parseWorkbook(buf);
-    if (budgetLines.length === 0) { alert('No budget lines found in Sheet 1.'); return; }
+    const isCsv = file.name.toLowerCase().endsWith('.csv');
+    let budgetLines: { categoryName: string; targetAmount: number }[];
+
+    if (isCsv) {
+      const text = await file.text();
+      budgetLines = parseCsvBudget(text);
+    } else {
+      const buf = await file.arrayBuffer();
+      const result = parseWorkbook(buf);
+      budgetLines = result.budgetLines;
+    }
+
+    if (budgetLines.length === 0) { alert('No budget lines found.'); return; }
     const { categories } = getData();
     const existingNames = new Set(categories.map((c) => c.name.toLowerCase()));
     for (const line of budgetLines) {
@@ -83,9 +113,9 @@ export function ImportBudgetCard({ compact = false, onImported }: Props) {
   if (compact) {
     return (
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={onChange} />
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={onChange} />
         <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()}>
-          Import Budget from XLSX
+          Import Budget from XLSX or CSV
         </button>
         <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}>↓ Template</button>
       </div>
@@ -97,15 +127,12 @@ export function ImportBudgetCard({ compact = false, onImported }: Props) {
       <p style={{ fontSize: '0.85rem', opacity: 0.8, marginBottom: '0.75rem' }}>
         Upload a budget spreadsheet to create a draft in <strong>Experimental Budgets</strong>. From there you can review it and apply it to a live month manually.
       </p>
-      <p style={{ fontSize: '0.8rem', opacity: 0.65, marginBottom: '0.75rem' }}>
-        Format: Sheet 1 — two columns: <code>Category</code>, <code>Monthly Target</code>. Sheet 2 (optional) — <code>Pattern</code>, <code>Category</code> (keyword rules).
-      </p>
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
         <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}>↓ Download sample template</button>
       </div>
-      <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={onChange} />
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={onChange} />
       <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()}>
-        Choose XLSX file…
+        Choose XLSX or CSV file…
       </button>
     </div>
   );

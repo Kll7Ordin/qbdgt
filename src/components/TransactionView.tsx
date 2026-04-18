@@ -167,8 +167,7 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
     });
   }
 
-  const monthTxns = allTransactions.filter((t) => monthFilter === 'all' || (t.txnDate >= monthStart && t.txnDate <= monthEnd));
-  const uncatCount = monthTxns.filter((t) => {
+  const uncatCount = allTransactions.filter((t) => {
     const splits = splitsMap.get(t.id);
     return t.categoryId == null && (!splits || splits.length === 0);
   }).length;

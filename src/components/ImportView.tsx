@@ -381,10 +381,10 @@ export function ImportView() {
             <div style={{ marginBottom: '0.75rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>Supported formats:</div>
               <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
-                • <strong>Scotia Chequing CSV</strong> (built-in) — Date, Description, Sub-description, Type of Transaction, Amount
+                • <strong>Scotiabank Chequing Account / Debit Card</strong> (built-in) — Date, Description, Sub-description, Type of Transaction, Amount
               </div>
               <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
-                • <strong>Scotia Credit Card CSV</strong> (built-in) — Date, Description, Sub-description, Amount (negative = credit)
+                • <strong>Scotiabank Credit Card</strong> (built-in) — Date, Description, Sub-description, Amount (negative = credit)
               </div>
               {customParsers.map((p) => (
                 <div key={p.id} style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
@@ -430,7 +430,7 @@ export function ImportView() {
         {importType === 'amazon' && (
           <>
             <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>
-              Paste your Amazon order history. Each order creates a transaction. Returned or cancelled orders are automatically zeroed out.
+              Paste your Amazon order history. Each order creates a transaction. Returned or cancelled orders are automatically zeroed out. These will be added as new transactions.
             </p>
             <div className="field">
               <textarea
@@ -448,7 +448,7 @@ export function ImportView() {
         {importType === 'paypal' && (
           <>
             <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>
-              Paste your PayPal activity text below.
+              Paste your PayPal activity text below. Imported entries will be matched against existing bank transactions where possible (to avoid duplicates). Any that don't match a bank transaction can be added as new transactions instead.
             </p>
             <div className="field">
               <textarea
