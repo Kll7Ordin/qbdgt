@@ -7,9 +7,6 @@ import {
   updateTransaction,
   deleteTransactions,
   addCategoryRule,
-  getAISettings,
-  getAICategoryFeedback,
-  logAICategoryFeedback,
   type Transaction,
   type TransactionSplit,
 } from '../db';
@@ -17,13 +14,9 @@ import { bulkCategorizeByDescriptor, bulkApplySplitRule, getGuessScores } from '
 import { findRefundCandidates, applyRefundToOriginalMonth, type RefundCandidate } from '../logic/refunds';
 import { SplitEditor } from './SplitEditor';
 import { SearchableSelect } from './SearchableSelect';
+import { TransactionLookup } from './TransactionLookup';
 import { formatAmount } from '../utils/format';
-import { suggestCategories, type CategorySuggestion } from '../logic/llm';
-
-// Module-level Ollama cache so suggestions persist across tab switches
-const _ollamaCache = new Map<number, CategorySuggestion>();
-let _suggestionFetchInProgress = false;
-let _suggestionFetchStartedAt = 0;
+import type { CategorySuggestion } from '../logic/llm';
 
 function currentMonth(): string {
   const d = new Date();
@@ -74,14 +67,13 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
   const [moveMonthTxn, setMoveMonthTxn] = useState<Transaction | null>(null);
   const [moveMonthYear, setMoveMonthYear] = useState('');
   const [moveMonthNum, setMoveMonthNum] = useState('');
+  const [lookupTxn, setLookupTxn] = useState<Transaction | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ text: string; top: number; left: number; flipUp: boolean } | null>(null);
-  // Ollama cache state (async, supplements history matching)
-  const [ollamaSuggestions, setOllamaSuggestions] = useState<Map<number, CategorySuggestion>>(() => new Map(_ollamaCache));
 
   // History-based suggestions using the 4-tier point system (exact → stripped IDs → fuzzy → keywords).
-  const historyMap = new Map<number, CategorySuggestion>();
+  const allSuggestions = new Map<number, CategorySuggestion>();
   const historyScoresMap = new Map<number, Map<number, number>>();
   for (const t of allTransactions) {
     if (t.categoryId != null || t.ignoreInBudget) continue;
@@ -90,33 +82,8 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
     historyScoresMap.set(t.id, scores);
     const catId = [...scores.entries()].sort((a, b) => b[1] - a[1])[0][0];
     const cat = categories.find((c) => c.id === catId);
-    if (cat) historyMap.set(t.id, { txnId: t.id, categoryId: catId, categoryName: cat.name });
+    if (cat) allSuggestions.set(t.id, { txnId: t.id, categoryId: catId, categoryName: cat.name });
   }
-  // Merge: history is base, Ollama can override
-  const allSuggestions = new Map(historyMap);
-  for (const [k, v] of ollamaSuggestions) allSuggestions.set(k, v);
-
-  // Ollama AI suggestions for any transactions history couldn't match
-  useEffect(() => {
-    const ai = getAISettings();
-    if (_suggestionFetchInProgress && Date.now() - _suggestionFetchStartedAt > 90000) _suggestionFetchInProgress = false;
-    if (!ai.model || _suggestionFetchInProgress) return;
-    const toFetch = allTransactions.filter(
-      (t) => t.categoryId == null && !t.ignoreInBudget && !historyMap.has(t.id) && !_ollamaCache.has(t.id),
-    );
-    if (toFetch.length === 0) return;
-    _suggestionFetchInProgress = true;
-    _suggestionFetchStartedAt = Date.now();
-    const batch = toFetch.slice(0, 50).map((t) => ({ id: t.id, descriptor: t.descriptor, amount: t.amount, txnDate: t.txnDate }));
-    const cats = categories.filter((c) => !c.isIncome).map((c) => ({ id: c.id, name: c.name }));
-    suggestCategories(batch, cats, ai, getAICategoryFeedback()).then((suggestions) => {
-      _suggestionFetchInProgress = false;
-      if (suggestions.length === 0) return;
-      for (const s of suggestions) _ollamaCache.set(s.txnId, s);
-      setOllamaSuggestions(new Map(_ollamaCache));
-    }).catch(() => { _suggestionFetchInProgress = false; });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allTransactions.length]);
 
   const showTooltip = useCallback((e: React.MouseEvent<HTMLTableCellElement>) => {
     const cell = e.currentTarget;
@@ -541,36 +508,26 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
                             onChange={(v) => {
                               assignCategory(t.id, v === '' ? null : Number(v));
                               setEditingCategoryId(null);
-                              if (v !== '') {
-                                const s = allSuggestions.get(t.id);
-                                if (s) logAICategoryFeedback(t.descriptor, s.categoryId, 'rejected', Number(v));
-                                _ollamaCache.delete(t.id);
-                                setOllamaSuggestions((prev) => { const m = new Map(prev); m.delete(t.id); return m; });
-                              }
                             }}
                             placeholder="Uncategorized"
                             style={{ fontSize: '0.85rem', minWidth: 120 }}
                           />
                         )}
-                        {/* Suggestion chip — history or AI */}
+                        {/* Suggestion chip — history-based */}
                         {t.categoryId == null && allSuggestions.has(t.id) && (() => {
                           const s = allSuggestions.get(t.id)!;
-                          const isAI = ollamaSuggestions.has(t.id);
                           const baseColor = catColorMap.get(s.categoryId) ?? '#888';
-                          // Build score breakdown tooltip for history suggestions
-                          let tooltipText = isAI ? 'AI suggestion — click to accept' : 'History match — click to accept';
-                          if (!isAI) {
-                            const scores = historyScoresMap.get(t.id);
-                            if (scores && scores.size > 0) {
-                              const lines = [...scores.entries()]
-                                .sort((a, b) => b[1] - a[1])
-                                .slice(0, 6)
-                                .map(([catId, pts]) => {
-                                  const name = categories.find((c) => c.id === catId)?.name ?? catId;
-                                  return `${name}: ${pts} pts`;
-                                });
-                              tooltipText += '\n' + lines.join('\n');
-                            }
+                          const scores = historyScoresMap.get(t.id);
+                          let tooltipText = 'History match — click to accept';
+                          if (scores && scores.size > 0) {
+                            const lines = [...scores.entries()]
+                              .sort((a, b) => b[1] - a[1])
+                              .slice(0, 6)
+                              .map(([catId, pts]) => {
+                                const name = categories.find((c) => c.id === catId)?.name ?? catId;
+                                return `${name}: ${pts} pts`;
+                              });
+                            tooltipText += '\n' + lines.join('\n');
                           }
                           return (
                             <span
@@ -585,14 +542,9 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
                                 fontWeight: 500,
                               }}
                               title={tooltipText}
-                              onClick={() => {
-                                assignCategory(t.id, s.categoryId);
-                                logAICategoryFeedback(t.descriptor, s.categoryId, 'accepted', s.categoryId);
-                                _ollamaCache.delete(t.id);
-                                setOllamaSuggestions((prev) => { const m = new Map(prev); m.delete(t.id); return m; });
-                              }}
+                              onClick={() => assignCategory(t.id, s.categoryId)}
                             >
-                              {isAI ? '🦙? ' : '~'}{s.categoryName}
+                              ~{s.categoryName}
                             </span>
                           );
                         })()}
@@ -620,6 +572,14 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
                       style={{ fontWeight: t.comment ? 'bold' : 'normal' }}
                     >
                       💬
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setLookupTxn(t)}
+                      title="Identify this transaction with AI - WARNING: This will perform an internet search on the transaction descriptor"
+                      style={{ fontWeight: 600, opacity: 0.7 }}
+                    >
+                      ?
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
@@ -920,6 +880,13 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
           {tooltip.text}
         </div>,
         document.body,
+      )}
+
+      {lookupTxn && (
+        <TransactionLookup
+          transaction={lookupTxn}
+          onClose={() => setLookupTxn(null)}
+        />
       )}
 
       {confirmDeleteId !== null && createPortal(

@@ -6,7 +6,6 @@ import { YearView } from './components/YearView';
 import { SavingsView } from './components/SavingsView';
 import { ImportView } from './components/ImportView';
 import { SettingsView } from './components/SettingsView';
-import { AIPanel } from './components/AIPanel';
 import { ExperimentalBudgetsView } from './components/ExperimentalBudgetsView';
 import { processRecurringTemplates } from './logic/recurring';
 import { processSchedules } from './logic/savings';
@@ -97,7 +96,6 @@ function App() {
   });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [aiOpen, setAiOpen] = useState(false);
   const [ollamaPrompt, setOllamaPrompt] = useState<{ model: string; binaryPath: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const undoAvailable = useSyncExternalStore(subscribeUndo, canUndo, canUndo);
@@ -268,14 +266,7 @@ function App() {
           >
             ⚙
           </button>
-          <button
-            className={`ai-toggle-btn ${aiOpen ? 'active' : ''}`}
-            onClick={() => setAiOpen((o) => !o)}
-            title={aiOpen ? 'Close AI assistant' : 'Open AI assistant'}
-          >
-            <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>🦙</span>
-          </button>
-          <span className="app-version">v1.3</span>
+          <span className="app-version">v1.4</span>
         </div>
       </nav>
       {searchOpen && (
@@ -332,7 +323,6 @@ function App() {
           />
         )}
       </main>
-      {aiOpen && <AIPanel onClose={() => setAiOpen(false)} />}
     </div>
   );
 }
