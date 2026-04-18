@@ -381,7 +381,10 @@ export function ImportView() {
             <div style={{ marginBottom: '0.75rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>Supported formats:</div>
               <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
-                • <strong>Scotia-style</strong> (built-in) — Date, Description, Sub-description, Type, Amount
+                • <strong>Scotia Chequing CSV</strong> (built-in) — Date, Description, Sub-description, Type of Transaction, Amount
+              </div>
+              <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
+                • <strong>Scotia Credit Card CSV</strong> (built-in) — Date, Description, Sub-description, Amount (negative = credit)
               </div>
               {customParsers.map((p) => (
                 <div key={p.id} style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>

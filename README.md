@@ -4,7 +4,9 @@ A privacy-focused personal budgeting desktop app. Create monthly budgets, track 
 
 **Your data never leaves your computer.** Everything is stored in a single JSON file you own and control. Optionally encrypt it with a password.
 
-![Budget view](screenshots/budget.png)
+**[Download latest release →](https://github.com/Kll7Ordin/qbdgt/releases/latest)**
+
+![Budget tab](screenshots/budget.png)
 
 ---
 
@@ -19,93 +21,121 @@ Most budgeting apps require you to hand over your bank login or connect via open
 
 ---
 
-## Features
+## Getting started
 
-### Budget tab
+### Download
+
+Grab the installer for your platform from the [latest release](https://github.com/Kll7Ordin/qbdgt/releases/latest):
+
+- **Windows** — `.msi` or `.exe` installer
+- **Linux** — `.deb` package or `.AppImage`
+
+### First launch
+
+On first launch you will be asked to open or create a budget file:
+
+- **Open existing file** — open a `.json` budget file you already have.
+- **Create new file** — start fresh with the default category template.
+- **Try demo data** — load a pre-built demo budget to explore the app before entering your own data.
+
+Choose a location for your file (a synced folder works well for cross-device access via your own cloud storage), set an optional password, and you are ready to go.
+
+---
+
+## Tabs
+
+### Budget
 
 Set monthly spending targets per category and track actual spending in real time.
 
 ![Budget tab](screenshots/budget.png)
 
-- **Summary cards** — at a glance: total planned Expenses, total expected Income, and Net (Income − Expenses). Month-to-date actuals show Spent, Remaining, Received income, and Yet to Receive.
-- **Category groups** — organise categories into named groups (Housing, Food & Dining, Transportation, etc.) with group-level subtotals. Drag to reorder groups and categories.
+- **Summary cards** — at a glance: total planned Expenses, expected Income, and Net (Income − Expenses). Month-to-date actuals show Spent, Remaining, Received income, and Yet to Receive.
+- **Category groups** — organise categories into named groups (High Variable, Fixed Bills, Subscriptions, etc.) with group-level subtotals. Drag and drop to reorder groups and categories.
 - **Per-row stats** — each category shows Target, Spent, Left, YTD total, YTD target, YTD variance, and average spend per month.
-- **Progress bars** — visual spend-vs-target indicator per category, coloured green (on track) or red (over budget).
-- **Income section** — separate income rows at the bottom showing Expected vs Received per income category.
-- **Occasional / savings categories** — mark categories as occasional (e.g. Emergency Fund, Vacation Fund); their spending is drawn from savings and excluded from monthly totals.
-- **Copy from previous month** — populate a new month's targets from last month's actuals with one click.
-- **Copy from experimental budget** — apply a saved scenario budget to any month.
-- **Undo** — undo any change with Ctrl+Z or the Undo button.
+- **Progress bars** — visual spend-vs-target bar per category, coloured green (on track) or red (over budget).
+- **Income section** — separate income rows showing Expected vs Received per income category.
+- **Occasional group** — mark a group as "Occasional" (e.g. emergency fund spending); these rows are excluded from the regular monthly totals.
+- **Copy from previous month** — populate a new month's targets from last month with one click.
+- **Copy from Experimental Budget** — apply a saved scenario budget to any month.
+- **Import Budget** — for brand-new files, import category targets from an XLSX spreadsheet directly from this tab.
+- **Undo** — undo any change with Ctrl+Z.
 
 ---
 
-### Transactions tab
+### Transactions
 
 View, categorise, and search all your transactions.
 
 ![Transactions tab](screenshots/transactions.png)
 
-- **Transaction list** — date, description, instrument (account), amount, and colour-coded category tag.
-- **Filter** — filter by month, category, or uncategorised-only.
-- **Search** — press Ctrl+F to search transaction descriptions across the current tab.
-- **Auto-categorisation rules** — create pattern-based rules (e.g. "COLES → Groceries") that apply automatically on import. Create a rule directly from any transaction row.
-- **Split transactions** — split a single transaction across multiple categories.
+- **Transaction list** — date, descriptor, instrument (account), amount, and colour-coded category.
+- **Filters** — filter by month, category, or uncategorised-only. Filter by instrument (account type).
+- **Search** — press Ctrl+F to search transaction descriptors.
+- **Auto-categorisation rules** — create keyword or regex rules (e.g. "LOBLAWS → Groceries") that apply automatically on import. Create a rule from any transaction row with one click.
+- **Category suggestion chips** — history-based suggestions appear on each uncategorised transaction based on how you've categorised similar transactions before.
+- **Deep dive (?)** — click `?` on any transaction to ask the local AI assistant about it (requires Ollama).
+- **Split transactions** — split a single transaction across multiple categories with custom amounts and optional different dates.
 - **Manual entry** — add transactions manually without importing a file.
-- **Undo** — all edits and categorisations are undoable.
+- **Undo** — all categorisations and edits are undoable.
 
 ---
 
-### Year view
+### Year View
 
 See your full year at a glance.
 
-![Year view](screenshots/year.png)
+![Year tab](screenshots/year.png)
 
 - **Monthly table** — Income, Planned expenses, Actual expenses, Variance, and Spent from Savings for every month of the year.
-- **Spending Trends chart** — line chart with Planned, Actual, Spent from Savings, and Income series.
-- **By Category chart** — switch to a per-category breakdown to see which categories drove overruns.
+- **Spending Trends chart** — line chart with Planned, Actual, Spent from Savings, and Income series. Data point labels shown without overlap.
+- **By Category chart** — switch to a per-category breakdown to see which categories drove overruns each month.
 
 ---
 
-### Savings tab
+### Savings
 
-Track savings buckets and automated contribution schedules.
+Track savings buckets and contribution schedules.
 
 ![Savings tab](screenshots/savings.png)
 
 - **Multiple buckets** — create named buckets (Emergency Fund, Vacation, New Car, etc.) each with its own balance.
 - **Total balance** — overall savings balance shown at the top.
 - **Manual entries** — record deposits and withdrawals with optional notes.
-- **Schedules** — set up automatic recurring contributions (e.g. $500 to Emergency Fund on the 1st of each month) so the balance stays in sync with your budget without manual entry each month.
+- **Schedules** — set up recurring monthly contributions (e.g. $300 to Emergency Fund on the 1st of each month) so balances stay current automatically.
 - **Loan tracking** — record amounts temporarily borrowed from savings to keep totals accurate.
 
 ---
 
-### Import tab
+### Import
 
 Bring in transactions from your bank or other sources.
 
 ![Import tab](screenshots/import.png)
 
-- **Bank CSV** — Scotiabank-style CSV (Date, Description, Sub-description, Type, Amount). Other bank formats can be supported by writing a custom parser via the AI assistant.
-- **Workbook** — import from a spreadsheet workbook.
+- **Bank CSV** — drop a CSV exported from your bank. Built-in support for:
+  - **Scotia Chequing CSV** — Date, Description, Sub-description, Type of Transaction, Amount
+  - **Scotia Credit Card CSV** — Date, Description, Sub-description, Amount (negative = credit)
+  - **Custom formats** — add support for any bank by providing a sample file; the AI generates a parser (requires Ollama). Manage formats in Settings → Bank CSV Formats.
 - **Amazon** — import from Amazon order history CSV export.
 - **PayPal** — import from PayPal transaction CSV export.
-- Drag and drop a file or click to browse. Imported transactions are deduplicated automatically and auto-categorised via your existing rules.
+
+Imported transactions are deduplicated automatically and auto-categorised using your existing rules.
 
 ---
 
-### Experimental Budgets tab
+### Experimental Budgets
 
-Plan alternative budget scenarios without affecting your live data.
+Plan alternative budget scenarios without touching your live data.
 
 ![Experimental Budgets tab](screenshots/experimental.png)
 
-- **Named scenarios** — create budgets like "Tight Budget", "Savings Push", or "New Baby Plan" and save them independently of your live monthly budget.
-- **Income & Expense separation** — each experimental budget has an Income section and a grouped Expenses section, mirroring the Budget tab layout.
-- **Totals** — see Total Income, Total Expenses, and Net at the top of each saved scenario.
-- **Apply to any month** — from the Budget tab, copy any experimental budget to a month's targets with one click (with overwrite confirmation).
-- **Snapshot from a real month** — create an experimental budget as a snapshot of any existing month's targets.
+- **Import from XLSX** — upload a budget spreadsheet (Category, Monthly Target columns) to create an Experimental Budget draft. Add keyword rules on Sheet 2 (Pattern, Category).
+- **Named scenarios** — create budgets like "Tight Budget" or "Vacation Month" independently of your live data.
+- **Snapshot from a real month** — create an experimental budget as a copy of any existing month's targets.
+- **Edit inline** — adjust target amounts and group assignments per category.
+- **Apply to any month** — from the Budget tab, copy any experimental budget into a month's live targets with overwrite confirmation.
+- **Totals** — see Total Income, Total Expenses, and Net at a glance for each scenario.
 
 ---
 
@@ -115,21 +145,24 @@ Configure categories, rules, encryption, parsers, and more.
 
 ![Settings tab](screenshots/settings.png)
 
-- **Categories** — create, rename, colour-code, and delete categories. Toggle the Income flag per category to control how they appear in budget summaries.
-- **Category rules** — manage auto-categorisation rules: pattern, match type (contains / starts with / regex), optional amount filter, and target category.
+- **Display** — toggle Light / Dark mode. Adjust zoom level (50 %–150 %).
+- **Automatic Backup** — create rolling JSON backups on each startup to a folder of your choice.
+- **Categories** — create, rename, colour-code, and delete categories. Toggle the Income flag to control how categories appear in budget summaries. Assign categories to savings buckets.
+- **Category rules** — manage auto-categorisation rules: keyword / regex pattern, optional amount filter, and target category.
 - **Recurring templates** — define recurring transactions that are automatically created each month (e.g. mortgage, subscriptions).
 - **Encryption** — set or change a password to encrypt your data file. The file is decrypted in memory only; nothing unencrypted touches disk.
-- **Display** — zoom level (50 %–150 %) to suit your screen density.
-- **Export** — export as a human-readable Excel workbook (one budget sheet + one transaction sheet per month, plus a year summary and savings sheet), a plain JSON archive, or an encrypted JSON archive.
-- **PayPal** — paste your PayPal transaction history CSV export and match entries against existing bank transactions.
-- **AI / Parsers** — configure a local Ollama model and manage custom import parsers.
-- **Purge** — permanently delete transactions for a specific month and type (irreversible; category rules are kept).
+- **Import Budget** — upload a budget XLSX to create an Experimental Budget draft (same as from the Exp. Budgets tab).
+- **Bank CSV Formats** — view built-in Scotia parsers and manage custom parsers generated by the AI. Add a new format by uploading a sample CSV.
+- **Export** — export as a human-readable Excel workbook (budget + transactions per month, year summary, savings), a plain JSON archive, or an encrypted JSON archive.
+- **PayPal matching** — paste a PayPal CSV export and match entries against existing bank transactions.
+- **AI assistant** — configure a local Ollama model for transaction lookup and custom parser generation.
+- **Purge** — permanently delete transactions for a specific month and type (irreversible).
 
 ---
 
-## AI assistant
+## AI features (local, optional)
 
-The built-in AI assistant runs entirely locally using [Ollama](https://ollama.com). No data is sent to any external server.
+The AI features run entirely on your machine using [Ollama](https://ollama.com). No data is sent to any external server.
 
 **Setup:**
 
@@ -140,13 +173,15 @@ The built-in AI assistant runs entirely locally using [Ollama](https://ollama.co
    (Recommended: `qwen2.5:7b` — ~4.7 GB. Smaller models also work.)
 
 2. Open **Settings → AI** and enter the model name and Ollama URL (default: `http://localhost:11434`).
-3. Click the **AI Assistant** button in the top bar to open the chat panel.
 
-The assistant can answer questions about your spending, recategorise transactions, create auto-categorisation rules, and write custom import parsers for banks not natively supported.
+**What AI is used for:**
+
+- **Transaction deep dive (?)** — click `?` on any transaction to chat with the AI about it, ask for context, or request a category assignment.
+- **Custom bank parsers** — in Import or Settings, upload a sample CSV from your bank and the AI writes a JavaScript parser for it automatically.
 
 ---
 
-## Getting started
+## Building from source
 
 ### Prerequisites
 
@@ -167,22 +202,18 @@ npm run tauri dev
 npm run tauri build
 ```
 
-The installer is written to `src-tauri/target/release/bundle/`. On Linux this produces a `.deb` and AppImage; on Windows an `.exe` installer and `.msi`.
-
-### First launch
-
-On first launch you will be asked to create or open a budget file. Choose a location (e.g. a synced folder if you want cross-machine access via your own storage), set an optional password, and you are ready to start.
+Output is in `src-tauri/target/release/bundle/`. On Linux: `.deb` and `.AppImage`. On Windows: `.exe` and `.msi`.
 
 ---
 
 ## Data format
 
-Your budget is a single JSON file containing all categories, budget targets, transactions, savings buckets, and settings. You can:
+Your budget is a single JSON file containing all categories, budget targets, transactions, savings data, and settings. You can:
 
 - Back it up by copying the file.
 - Version it with git.
 - Move it to another machine and open it there.
-- Open and inspect it with any text editor (if unencrypted).
+- Read or inspect it with any text editor (if unencrypted).
 
 ---
 
@@ -194,4 +225,4 @@ Your budget is a single JSON file containing all categories, budget targets, tra
 | UI | [React 19](https://react.dev) + TypeScript |
 | Build | [Vite](https://vite.dev) |
 | Charts | [Chart.js](https://www.chartjs.org) |
-| Spreadsheet import | [xlsx / SheetJS](https://github.com/SheetJS/sheetjs) |
+| Spreadsheet import/export | [xlsx / SheetJS](https://github.com/SheetJS/sheetjs) |
