@@ -179,6 +179,72 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
     return d.planned;
   });
 
+  // Data labels plugin — draws values on each point, avoiding overlaps
+  const dataLabelsPlugin = {
+    id: 'dataLabels',
+    afterDatasetsDraw(chart: any) {
+      const ctx: CanvasRenderingContext2D = chart.ctx;
+      const fontSize = 12;
+      ctx.save();
+      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+
+      // Collect all visible points grouped by x-index
+      const byIndex = new Map<number, Array<{ x: number; y: number; val: number; color: string }>>();
+      chart.data.datasets.forEach((dataset: any, di: number) => {
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        (dataset.data as (number | null)[]).forEach((val, idx) => {
+          if (val == null) return;
+          const pt = meta.data[idx];
+          if (!pt || pt.skip) return;
+          const arr = byIndex.get(idx) ?? [];
+          arr.push({ x: pt.x, y: pt.y, val, color: dataset.borderColor as string });
+          byIndex.set(idx, arr);
+        });
+      });
+
+      const labelH = fontSize + 18; // generous vertical gap to avoid collisions
+      const placed: Array<{ cx: number; cy: number; w: number; h: number }> = [];
+
+      function overlaps(cx: number, cy: number, w: number) {
+        return placed.some(
+          (p) =>
+            Math.abs(p.cx - cx) < (p.w + w) / 2 + 6 &&
+            Math.abs(p.cy - cy) < (p.h + labelH) / 2 + 4,
+        );
+      }
+
+      byIndex.forEach((points) => {
+        // Process top-to-bottom (smallest canvas y = highest on screen first)
+        points.sort((a, b) => a.y - b.y);
+        points.forEach((pt) => {
+          const text = `$${formatAmount(pt.val, 0)}`;
+          const w = ctx.measureText(text).width + 8;
+          // Try above the point first, then below, then further out
+          const tries = [
+            pt.y - labelH,
+            pt.y + labelH,
+            pt.y - labelH * 2,
+            pt.y + labelH * 2,
+            pt.y - labelH * 3,
+            pt.y + labelH * 3,
+          ];
+          let cy = tries[0];
+          for (const t of tries) {
+            if (!overlaps(pt.x, t, w)) { cy = t; break; }
+          }
+          placed.push({ cx: pt.x, cy, w, h: labelH });
+          ctx.fillStyle = pt.color;
+          ctx.fillText(text, pt.x, cy);
+        });
+      });
+
+      ctx.restore();
+    },
+  };
+
   // Vertical boundary plugin for Chart.js
   const verticalBoundaryPlugin = {
     id: 'verticalBoundary',
@@ -216,8 +282,8 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
             spanGaps: false,
             borderWidth: 2.5,
             fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           },
         ]
       : [
@@ -230,8 +296,8 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
             borderWidth: 2.5,
             spanGaps: false,
             fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           },
           {
             label: 'Actual',
@@ -242,8 +308,8 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
             spanGaps: false,
             borderWidth: 2.5,
             fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           },
           ...(!categoryFilterActive || selectedIncludeSavings ? [{
             label: 'Spent from Savings',
@@ -254,8 +320,8 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
             spanGaps: false,
             borderWidth: 2.5,
             fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           }] : []),
           ...(scope === 'overall' ? [{
             label: 'Income',
@@ -266,8 +332,8 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
             spanGaps: false,
             borderWidth: 2.5,
             fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           }] : []),
         ],
   };
@@ -355,24 +421,24 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
           <Line
             ref={chartRef}
             data={chartData}
-            plugins={[verticalBoundaryPlugin as unknown as Parameters<typeof Line>[0]['plugins'] extends (infer P)[] | undefined ? P : never]}
+            plugins={[verticalBoundaryPlugin, dataLabelsPlugin] as unknown as Parameters<typeof Line>[0]['plugins'] extends (infer P)[] | undefined ? P[] : never}
             options={{
               responsive: true,
               maintainAspectRatio: false,
               scales: {
                 y: {
                   beginAtZero: true,
-                  ticks: { color: darkMode ? '#b0bdd0' : '#555', font: { size: 14 } },
+                  ticks: { color: darkMode ? '#b0bdd0' : '#555', font: { size: 16 } },
                   grid: { color: darkMode ? 'rgba(255,255,255,0.08)' : '#e5e7eb' },
                 },
                 x: {
-                  ticks: { color: darkMode ? '#b0bdd0' : '#555', font: { size: 14 } },
+                  ticks: { color: darkMode ? '#b0bdd0' : '#555', font: { size: 16 } },
                   grid: { color: darkMode ? 'rgba(255,255,255,0.08)' : '#e5e7eb' },
                 },
               },
               plugins: {
                 legend: {
-                  labels: { color: darkMode ? '#e8ecf4' : '#1a2332', font: { size: 14 }, padding: 20 },
+                  labels: { color: darkMode ? '#e8ecf4' : '#1a2332', font: { size: 16 }, padding: 20 },
                 },
                 tooltip: {
                   backgroundColor: darkMode ? '#1a1d27' : '#fff',

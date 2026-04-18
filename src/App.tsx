@@ -186,7 +186,8 @@ function App() {
   }
 
   function changeTab(newTab: Tab) {
-    setTabHistory([]);
+    if (newTab === tab) return;
+    setTabHistory((h) => [...h, tab]);
     setTab(newTab);
     setCustomBackHandler(null);
   }
