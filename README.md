@@ -2,7 +2,7 @@
 
 A privacy-focused personal budgeting desktop app. Create monthly budgets, track spending, and see where your money actually goes — without ever giving your login credentials to a third party or uploading your data to the cloud.
 
-**Your data never leaves your computer.** Everything is stored in a single JSON file you own and control. Optionally encrypt it with a password.
+**Your data never leaves your computer.** Everything is stored in a single local file you own and control. Optionally encrypt it with a password.
 
 **[Download latest release →](https://github.com/Kll7Ordin/qbdgt/releases/latest)**
 
