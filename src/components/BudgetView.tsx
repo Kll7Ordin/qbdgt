@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { flushSync, createPortal } from 'react-dom';
-import { getData, subscribe, upsertBudget, deleteBudget, addBudgetGroup, updateBudgetGroup, deleteBudgetGroup, reorderBudgetsInGroup, addCategory, updateCategoryNote, pushUndoSnapshot, type Category, type TransactionSplit, type BudgetGroup, type ExperimentalBudget } from '../db';
+import { getData, subscribe, upsertBudget, deleteBudget, addBudgetGroup, updateBudgetGroup, deleteBudgetGroup, reorderBudgetsInGroup, addCategory, updateCategoryNote, updateCategoryName, pushUndoSnapshot, type Category, type TransactionSplit, type BudgetGroup, type ExperimentalBudget } from '../db';
 import { ImportBudgetCard } from './ImportBudgetCard';
 import { SearchableSelect } from './SearchableSelect';
 import { formatAmount } from '../utils/format';
@@ -175,11 +175,15 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
   const [newCatName, setNewCatName] = useState(''); // for inline category creation
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupSpendFromSavings, setNewGroupSpendFromSavings] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editTarget, setEditTarget] = useState('');
   const [editPastMonths, setEditPastMonths] = useState(false);
-  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editingGroupName, setEditingGroupName] = useState('');
+  const [editingGroupSpendFromSavings, setEditingGroupSpendFromSavings] = useState(false);
+  const [groupSettingsGroupId, setGroupSettingsGroupId] = useState<number | null>(null);
+  const [catRenameId, setCatRenameId] = useState<number | null>(null);
+  const [catRenameName, setCatRenameName] = useState('');
   const [priorMonthCount, setPriorMonthCount] = useState(0);
   const [allIncomeReceived, setAllIncomeReceived] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
@@ -284,13 +288,28 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
 
   async function addGroup() {
     if (!newGroupName.trim()) return;
-    await addBudgetGroup(newGroupName.trim());
-    setNewGroupName(''); setShowAddGroup(false);
+    const id = await addBudgetGroup(newGroupName.trim());
+    if (newGroupSpendFromSavings) await updateBudgetGroup(id, { spendFromSavings: true });
+    setNewGroupName(''); setNewGroupSpendFromSavings(false); setShowAddGroup(false);
   }
 
-  async function saveGroupName(groupId: number) {
-    if (editingGroupName.trim()) await updateBudgetGroup(groupId, { name: editingGroupName.trim() });
-    setEditingGroupId(null);
+  function openGroupSettings(group: BudgetGroup) {
+    setGroupSettingsGroupId(group.id);
+    setEditingGroupName(group.name);
+    setEditingGroupSpendFromSavings(group.spendFromSavings ?? false);
+  }
+
+  async function saveGroupSettings() {
+    if (groupSettingsGroupId == null) return;
+    const name = editingGroupName.trim();
+    if (name) await updateBudgetGroup(groupSettingsGroupId, { name, spendFromSavings: editingGroupSpendFromSavings });
+    setGroupSettingsGroupId(null);
+  }
+
+  async function saveCatRename() {
+    if (catRenameId == null || !catRenameName.trim()) return;
+    await updateCategoryName(catRenameId, catRenameName.trim());
+    setCatRenameId(null);
   }
 
 
@@ -566,11 +585,10 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
   const expenseRows = rows.filter((r) => !r.isIncome && searchFilter(r));
   const incomeRows = rows.filter((r) => r.isIncome && searchFilter(r));
 
-  // Identify "Occasional" group (case-insensitive name match)
-  const occasionalGroup = budgetGroups.find((g) => g.name.toLowerCase().includes('occasional')) ?? null;
-  const occasionalGroupId = occasionalGroup?.id ?? null;
-  const savingsRows = occasionalGroupId != null ? expenseRows.filter((r) => r.groupId === occasionalGroupId) : [];
-  const regularRows = expenseRows.filter((r) => r.groupId !== occasionalGroupId);
+  // Identify groups marked as "Spend from Savings"
+  const spendFromSavingsGroupIds = new Set(budgetGroups.filter((g) => g.spendFromSavings).map((g) => g.id));
+  const savingsRows = expenseRows.filter((r) => r.groupId != null && spendFromSavingsGroupIds.has(r.groupId));
+  const regularRows = expenseRows.filter((r) => r.groupId == null || !spendFromSavingsGroupIds.has(r.groupId));
 
   const totalTarget = regularRows.reduce((s, r) => s + r.target, 0);
   const totalSpent = regularRows.reduce((s, r) => s + r.spent, 0);
@@ -716,7 +734,7 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
               <span className="summary-label">Remaining</span>
               <span className="summary-value" style={{ color: '#b45309' }}>${formatAmount(Math.max(0, totalTarget - totalSpent), 0)}</span>
             </div>
-            {occasionalGroupId != null && (
+            {spendFromSavingsGroupIds.size > 0 && (
               <div className="summary-card">
                 <span className="summary-label">Spent Savings</span>
                 <span className="summary-value" style={{ color: 'var(--savings-blue)' }}>${formatAmount(spentFromSavings, 0)}</span>
@@ -773,7 +791,7 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
           <tbody ref={tableBodyRef}>
             {grouped.flatMap(({ group, rows: grpRows }) => {
               const thisGroupId = group?.id ?? null;
-              const isOccasional = occasionalGroupId != null && thisGroupId === occasionalGroupId;
+              const isSpendFromSavings = group?.spendFromSavings === true;
               const groupSpent = grpRows.reduce((s, r) => s + r.spent, 0);
               const groupTarget = grpRows.reduce((s, r) => s + r.target, 0);
               // Hide ungrouped section entirely when empty and not dragging
@@ -803,16 +821,8 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
                   <td colSpan={COLS - 1} style={{ padding: '0.4rem 0.75rem 0.4rem 0.3rem', background: 'var(--bg-3)', borderTop: '1px solid var(--border)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        {group && editingGroupId === group.id ? (
-                          <input value={editingGroupName} onChange={(e) => setEditingGroupName(e.target.value)}
-                            onBlur={() => saveGroupName(group.id)} onKeyDown={(e) => e.key === 'Enter' && saveGroupName(group.id)}
-                            onClick={(e) => e.stopPropagation()} autoFocus
-                            style={{ maxWidth: 200, padding: '0.2rem 0.4rem', fontSize: '0.9rem' }} />
-                        ) : group ? (
-                          <strong style={{ cursor: 'pointer', fontSize: '0.97rem' }}
-                            onClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}>
-                            {group.name}
-                          </strong>
+                        {group ? (
+                          <strong style={{ fontSize: '0.97rem' }}>{group.name}</strong>
                         ) : (
                           <span style={{ opacity: 0.6, fontSize: '0.97rem' }}>Ungrouped</span>
                         )}
@@ -845,14 +855,20 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
                             </span>
                           )}
                         </span>
-                        {isOccasional && (
+                        {isSpendFromSavings && (
                           <span style={{ fontSize: '0.72rem', color: 'var(--text-3)', fontStyle: 'italic' }}>
-                            expenses come from savings — not counted in monthly Spent or Year totals
+                            spend from savings
                           </span>
                         )}
                       </div>
                       {group && (
                         <span style={{ display: 'flex', gap: 2 }}>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            title="Group settings (rename, spend from savings)"
+                            onClick={() => openGroupSettings(group)}
+                            style={{ opacity: 0.6, fontSize: '0.9rem', padding: '0.15rem 0.35rem' }}
+                          >⚙</button>
                           <button className="btn btn-danger btn-sm" onClick={() => deleteBudgetGroup(group.id)}>&times;</button>
                         </span>
                       )}
@@ -884,6 +900,11 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
                       <td style={{ position: 'relative', overflow: 'visible' }}>
                         <div style={{ fontSize: '0.9rem', paddingBottom: r.target > 0 ? 10 : 0, display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span title={r.note || undefined}>{r.categoryName}</span>
+                          <span
+                            title="Rename category"
+                            style={{ cursor: 'pointer', opacity: 0.3, fontSize: '0.68rem', flexShrink: 0, lineHeight: 1 }}
+                            onClick={() => { setCatRenameId(r.categoryId); setCatRenameName(r.categoryName); }}
+                          >⚙</span>
                           {onNavigateToYear && (
                             <span
                               title={`View ${r.categoryName} trend in Year view`}
@@ -1081,8 +1102,12 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
                 <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addGroup()} placeholder="Enter name" autoFocus />
               </div>
-              <button className="btn btn-primary" onClick={addGroup}>Create</button>
-              <button className="btn btn-ghost" onClick={() => { setShowAddGroup(false); setNewGroupName(''); }}>Cancel</button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer', marginBottom: '0.65rem', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={newGroupSpendFromSavings} onChange={(e) => setNewGroupSpendFromSavings(e.target.checked)} />
+                Spend from Savings
+              </label>
+              <button className="btn btn-primary" onClick={addGroup} style={{ marginBottom: '0.65rem' }}>Create</button>
+              <button className="btn btn-ghost" onClick={() => { setShowAddGroup(false); setNewGroupName(''); setNewGroupSpendFromSavings(false); }} style={{ marginBottom: '0.65rem' }}>Cancel</button>
             </div>
           ) : (
             <button className="btn btn-ghost" onClick={() => setShowAddGroup(true)}>+ Add group</button>
@@ -1259,6 +1284,53 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
           {groupGhostLabel}
         </div>,
         document.body,
+      )}
+
+      {/* Group settings modal */}
+      {groupSettingsGroupId != null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setGroupSettingsGroupId(null)}>
+          <div style={{ background: 'var(--bg-1)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', width: 340, maxWidth: '90vw' }}
+            onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 1rem' }}>Group Settings</h3>
+            <div className="field" style={{ marginBottom: '0.75rem' }}>
+              <label>Name</label>
+              <input value={editingGroupName} onChange={(e) => setEditingGroupName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveGroupSettings()} autoFocus />
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '1.25rem', fontSize: '0.9rem' }}>
+              <input type="checkbox" checked={editingGroupSpendFromSavings} onChange={(e) => setEditingGroupSpendFromSavings(e.target.checked)} />
+              Spend from Savings
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>
+                (spending won't count against monthly budget)
+              </span>
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setGroupSettingsGroupId(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveGroupSettings}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category rename modal */}
+      {catRenameId != null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setCatRenameId(null)}>
+          <div style={{ background: 'var(--bg-1)', borderRadius: 'var(--radius-lg)', padding: '1.5rem', width: 300, maxWidth: '90vw' }}
+            onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 1rem' }}>Rename Category</h3>
+            <div className="field" style={{ marginBottom: '1.25rem' }}>
+              <label>Name</label>
+              <input value={catRenameName} onChange={(e) => setCatRenameName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveCatRename()} autoFocus />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setCatRenameId(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCatRename}>Save</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -513,7 +513,7 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
                               setEditingCategoryId(null);
                             }}
                             placeholder="Uncategorized"
-                            style={{ fontSize: '0.85rem', minWidth: 120 }}
+                            style={{ fontSize: '0.67rem', minWidth: 120 }}
                           />
                         )}
                         {/* Suggestion chip — history-based */}
@@ -541,7 +541,7 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
                                 color: baseColor,
                                 border: `1px solid ${baseColor}66`,
                                 whiteSpace: 'nowrap',
-                                fontSize: '0.78rem',
+                                fontSize: '0.67rem',
                                 fontWeight: 500,
                               }}
                               title={tooltipText}

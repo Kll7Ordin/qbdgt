@@ -37,6 +37,11 @@ export async function updateCategoryNote(id: number, note: string): Promise<void
   if (cat) { cat.note = note || undefined; await persist(); }
 }
 
+export async function updateCategoryName(id: number, name: string): Promise<void> {
+  const cat = data.categories.find((c) => c.id === id);
+  if (cat && name.trim()) { cat.name = name.trim(); await persist(); }
+}
+
 export async function updateCategoryBucket(id: number, bucketId: number | null): Promise<void> {
   const cat = data.categories.find((c) => c.id === id);
   if (cat) { cat.savingsBucketId = bucketId ?? undefined; await persist(); }
@@ -67,6 +72,7 @@ export interface BudgetGroup {
   name: string;
   sortOrder: number;
   note?: string;
+  spendFromSavings?: boolean;
 }
 
 export interface Budget {
