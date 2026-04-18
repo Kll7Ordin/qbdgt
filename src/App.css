@@ -7,18 +7,41 @@
 
 /* ── Tab bar ── */
 .tab-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 2px;
-  padding: 0 1.25rem;
+  padding: 0 0.5rem;
   background: #1a9e8b;
   border-bottom: 1px solid rgba(0,0,0,0.15);
   position: sticky;
   top: 0;
   z-index: 50;
+  min-height: 52px;
+}
+
+.tab-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.tab-bar-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  min-height: 52px;
+  padding: 0 0.25rem;
+}
+
+.tab-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .tab-btn {
@@ -80,7 +103,7 @@
 /* ── Main content ── */
 .main-content {
   flex: 1;
-  padding: 1.75rem 12rem;
+  padding: 1.75rem clamp(0.5rem, 2vw, 3rem);
   width: 100%;
 }
 
@@ -258,34 +281,51 @@ textarea:focus {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 1rem 1.1rem;
+  padding: clamp(0.5rem, 2vw, 1rem) clamp(0.5rem, 2vw, 1.1rem);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   position: relative;
   overflow: hidden;
+  min-width: 0;
 }
 
 .summary-label {
-  font-size: 0.68rem;
+  font-size: clamp(0.52rem, 1.1vw, 0.66rem);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .summary-value {
-  font-size: 1.45rem;
+  font-size: clamp(0.7rem, 1.3vw, 1.2rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-  line-height: 1;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Color helpers ── */
 .positive { color: var(--green); }
 .negative { color: var(--red); }
 .neutral  { color: var(--accent); }
+.txn-neg  { color: var(--neg-amount); }
+
+/* Remove number input spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
 
 /* ── Budget table specifics ── */
 .budget-table tr.budget-row-even td { background: #ffffff; }
@@ -294,7 +334,7 @@ textarea:focus {
 .budget-table tr.budget-row-odd:hover td  { background: rgba(26,158,139,0.06); }
 
 .budget-num {
-  font-size: 0.93rem !important;
+  font-size: clamp(0.72rem, 1.5vw, 0.93rem) !important;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
@@ -307,12 +347,12 @@ textarea:focus {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: clamp(0.72rem, 1.5vw, 0.875rem);
 }
 
 .data-table th {
   text-align: left;
-  font-size: 0.72rem;
+  font-size: clamp(0.6rem, 1.2vw, 0.72rem);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -324,15 +364,19 @@ textarea:focus {
 }
 
 .data-table td {
-  padding: 0.45rem 0.75rem;
+  padding: clamp(0.3rem, 0.8vw, 0.45rem) clamp(0.4rem, 1vw, 0.75rem);
   border-bottom: 1px solid var(--border-2);
   vertical-align: middle;
-  font-size: 0.93rem;
+  font-size: clamp(0.72rem, 1.5vw, 0.93rem);
   color: var(--text);
 }
 .data-table td.positive { color: var(--green); }
 .data-table td.negative { color: var(--red); }
 .data-table td.neutral  { color: var(--accent); }
+/* Ensure positive/negative/txn-neg colors override row-level color in categorized rows */
+.data-table tr td.positive { color: var(--green) !important; }
+.data-table tr td.negative { color: var(--red) !important; }
+.data-table tr td.txn-neg  { color: var(--neg-amount) !important; }
 
 .data-table tr:last-child td { border-bottom: none; }
 
@@ -619,9 +663,10 @@ textarea:focus {
 
 .descriptor-text {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.35;
 }
 
 .descriptor-tooltip {
@@ -887,19 +932,59 @@ textarea:focus {
 .ai-status-dot.checking { background: var(--yellow); }
 
 /* ── Responsive ── */
+@media (max-width: 900px) {
+  .main-content { padding: 1.25rem clamp(0.5rem, 3vw, 3rem); }
+}
+
 @media (max-width: 640px) {
   .summary-row { grid-template-columns: 1fr 1fr; }
-  .main-content { padding: 1rem; }
+  .main-content { padding: 0.75rem 0.5rem; }
   .modal { padding: 1.25rem; }
   .ai-panel { width: 100vw; }
+  .card { padding: 0.875rem 0.75rem; }
+  /* Transaction table action buttons — stack on small screens */
+  .txn-action-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    min-width: 0;
+  }
+  /* Settings form rows — stack on small screens */
+  .row { flex-direction: column; }
+  .row > * { width: 100%; }
 }
 
 @media (max-width: 400px) {
   .summary-row { grid-template-columns: 1fr; }
+  .main-content { padding: 0.5rem 0.25rem; }
+}
+
+/* Row helper: always align items center vertically */
+.row-align-center {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 /* ── Chart container ── */
 .chart-container { position: relative; height: 450px; margin: 1rem 0; }
+
+/* ── Dark mode overrides ── */
+html.dark .tab-bar { background: #0d7a6b; }
+html.dark .budget-table tr.budget-row-even td { background: #1a1d27; }
+html.dark .budget-table tr.budget-row-odd td  { background: #252836; }
+html.dark .budget-table tr.budget-group-header td { background: #1e2130 !important; }
+html.dark .data-table th { background: #0f1117; color: #606880; }
+html.dark .data-table tr:hover td { background: rgba(31,184,163,0.08); }
+html.dark .data-table tr.txn-row-uncat-alt td { background: #252836; }
+html.dark .data-table tr.txn-row-categorized td { background: rgba(31,184,163,0.1); }
+html.dark .data-table tr.txn-row-categorized-alt td { background: rgba(31,184,163,0.16); }
+html.dark .data-table tr.txn-row-categorized:hover td,
+html.dark .data-table tr.txn-row-categorized-alt:hover td { background: rgba(31,184,163,0.22); }
+html.dark .file-setup { background: #0f1117; background-image: radial-gradient(ellipse at 50% 0%, rgba(31,184,163,0.1) 0%, transparent 60%); }
+html.dark .chip { background: #252836; border-color: #2e3347; color: #a0aabb; }
+html.dark code { background: #1e2130; border-color: #2e3347; color: #a0aabb; }
 
 /* ── Import / data sync ── */
 .sync-section { margin-top: 1.5rem; }

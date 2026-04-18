@@ -62,6 +62,31 @@ fn file_exists(path: String) -> bool {
 }
 
 #[derive(Serialize)]
+struct FileInfo {
+    path: String,
+    modified_secs: u64,
+}
+
+#[tauri::command]
+fn list_dir_files(dir: String, ext: String) -> Vec<FileInfo> {
+    let dir_path = std::path::Path::new(&dir);
+    let mut results = Vec::new();
+    let Ok(entries) = fs::read_dir(dir_path) else { return results; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() { continue; }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        if !ext.is_empty() && !name.ends_with(&ext) { continue; }
+        let modified_secs = entry.metadata()
+            .and_then(|m| m.modified())
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+            .unwrap_or(0);
+        results.push(FileInfo { path: path.to_string_lossy().to_string(), modified_secs });
+    }
+    results
+}
+
+#[derive(Serialize)]
 struct DdgResult {
     title: String,
     snippet: String,
@@ -344,6 +369,7 @@ pub fn run() {
             load_data,
             save_data,
             file_exists,
+            list_dir_files,
             search_ddg,
             find_ollama,
             install_ollama,

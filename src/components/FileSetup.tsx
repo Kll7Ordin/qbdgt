@@ -106,13 +106,8 @@ export function FileSetup({ onReady }: Props) {
 
   return (
     <div className="file-setup">
-      <div className="file-setup-logo">
-        <span style={{ fontSize: '2.5rem' }}>💰</span>
-      </div>
-      <h1 className="file-setup-title">Budget</h1>
-      <p className="setup-desc">
-        Your data lives in a single file on your computer — no cloud, no account required.
-      </p>
+      <h1 className="file-setup-title">qbdgt</h1>
+      <p className="setup-desc">Track Your Money</p>
 
       <div className="setup-actions">
         <button className="btn btn-primary" onClick={handleOpen}>

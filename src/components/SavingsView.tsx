@@ -8,6 +8,9 @@ import {
   addSavingsSchedule,
   updateSavingsSchedule,
   setSavingsLoanAmount,
+  clearAutoScheduleEntries,
+  deleteSavingsSchedule,
+  deleteAllSavingsSchedules,
   type SavingsBucket,
   type SavingsEntry,
   type SavingsSchedule,
@@ -16,10 +19,18 @@ import { processSchedules, getBucketBalance } from '../logic/savings';
 import { SearchableSelect } from './SearchableSelect';
 import { formatAmount } from '../utils/format';
 
+interface DisplayEntry {
+  key: string;
+  date: string;
+  amount: number;
+  notes: string;
+  source: string;
+}
+
 interface BucketData {
   bucket: SavingsBucket;
   balance: number;
-  entries: SavingsEntry[];
+  entries: DisplayEntry[];
   schedules: SavingsSchedule[];
 }
 
@@ -48,13 +59,50 @@ export function SavingsView() {
   const [initialized, setInitialized] = useState(false);
 
   const compute = useCallback(() => {
-    const { savingsBuckets, savingsEntries, savingsSchedules } = getData();
-    const result: BucketData[] = savingsBuckets.map((b) => ({
-      bucket: b,
-      balance: getBucketBalance(b.id),
-      entries: savingsEntries.filter((e) => e.bucketId === b.id).reverse(),
-      schedules: savingsSchedules.filter((s) => s.bucketId === b.id),
-    }));
+    const { savingsBuckets, savingsEntries, savingsSchedules, categories, transactions, transactionSplits } = getData();
+
+    const splitsByTxn = new Map<number, typeof transactionSplits>();
+    for (const s of transactionSplits) {
+      const arr = splitsByTxn.get(s.transactionId) ?? [];
+      arr.push(s);
+      splitsByTxn.set(s.transactionId, arr);
+    }
+
+    const result: BucketData[] = savingsBuckets.map((b) => {
+      // Manual/scheduled savings entries
+      const manualEntries: DisplayEntry[] = savingsEntries
+        .filter((e) => e.bucketId === b.id)
+        .map((e) => ({ key: `e-${e.id}`, date: e.entryDate, amount: e.amount, notes: e.notes ?? '', source: e.source }));
+
+      // Real transaction contributions via linked categories
+      const linkedCatIds = new Set(categories.filter((c) => c.savingsBucketId === b.id).map((c) => c.id));
+      const txnEntries: DisplayEntry[] = [];
+      if (linkedCatIds.size > 0) {
+        for (const t of transactions) {
+          if (t.ignoreInBudget) continue;
+          const splits = splitsByTxn.get(t.id);
+          if (splits && splits.length > 0) {
+            for (const s of splits) {
+              if (linkedCatIds.has(s.categoryId)) {
+                txnEntries.push({ key: `t-${t.id}-${s.categoryId}`, date: t.txnDate, amount: s.amount, notes: t.descriptor, source: 'transaction' });
+              }
+            }
+          } else if (t.categoryId && linkedCatIds.has(t.categoryId)) {
+            txnEntries.push({ key: `t-${t.id}`, date: t.txnDate, amount: t.amount, notes: t.descriptor, source: 'transaction' });
+          }
+        }
+      }
+
+      const allEntries = [...manualEntries, ...txnEntries]
+        .sort((a, b) => b.date > a.date ? 1 : b.date < a.date ? -1 : 0);
+
+      return {
+        bucket: b,
+        balance: getBucketBalance(b.id),
+        entries: allEntries,
+        schedules: savingsSchedules.filter((s) => s.bucketId === b.id),
+      };
+    });
     setBuckets(result);
   }, []);
 
@@ -221,6 +269,14 @@ export function SavingsView() {
                       >
                         {s.active ? 'Active' : 'Paused'}
                       </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--red)' }}
+                        onClick={() => deleteSavingsSchedule(s.id)}
+                        title="Delete schedule"
+                      >
+                        &times;
+                      </button>
                     </div>
                   ))}
                 </>
@@ -238,8 +294,8 @@ export function SavingsView() {
                 </thead>
                 <tbody>
                   {entries.map((e) => (
-                    <tr key={e.id}>
-                      <td>{e.entryDate}</td>
+                    <tr key={e.key}>
+                      <td>{e.date}</td>
                       <td className={`num ${e.amount >= 0 ? 'positive' : 'negative'}`}>
                         {e.amount >= 0 ? '+' : ''}${formatAmount(e.amount)}
                       </td>
@@ -268,10 +324,10 @@ export function SavingsView() {
       <div className="card">
         <div className="section-title">Add bucket</div>
         <div className="row">
-          <div className="field">
+          <div className="field" style={{ flex: '1 1 160px' }}>
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Bucket name" />
           </div>
-          <button className="btn btn-primary" onClick={handleAddBucket}>Add</button>
+          <button className="btn btn-primary" style={{ flex: '0 0 auto', alignSelf: 'flex-end' }} onClick={handleAddBucket}>Add</button>
         </div>
       </div>
 
@@ -321,6 +377,9 @@ export function SavingsView() {
 
           <div className="card">
             <div className="section-title">Add schedule</div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-3)', margin: '0 0 0.75rem' }}>
+              ⚠ Only use schedules if there is no real transaction to categorize. If a category is linked to this bucket, real transactions will count automatically — using a schedule on top will double-count contributions.
+            </p>
             <div className="row">
               <div className="field">
                 <label>Bucket</label>
@@ -346,7 +405,30 @@ export function SavingsView() {
                 <input type="month" value={schedStart} onChange={(e) => setSchedStart(e.target.value)} />
               </div>
             </div>
-            <button className="btn btn-primary" onClick={handleAddSchedule} style={{ marginTop: '0.5rem' }}>Add Schedule</button>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={handleAddSchedule}>Add Schedule</button>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ color: 'var(--red)' }}
+                onClick={async () => {
+                  const n = await clearAutoScheduleEntries();
+                  alert(n > 0 ? `Cleared ${n} scheduled entries. Balances now reflect real transactions only.` : 'No scheduled entries to clear.');
+                  compute();
+                }}
+              >
+                Clear all scheduled entries
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ color: 'var(--red)' }}
+                onClick={async () => {
+                  const n = await deleteAllSavingsSchedules();
+                  alert(n > 0 ? `Deleted ${n} schedule${n !== 1 ? 's' : ''}.` : 'No schedules to delete.');
+                }}
+              >
+                Delete all schedules
+              </button>
+            </div>
           </div>
         </>
       )}

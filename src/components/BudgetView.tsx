@@ -158,7 +158,13 @@ function groupRows(rows: BudgetRow[], groups: BudgetGroup[]): { group: BudgetGro
   return result;
 }
 
-export function BudgetView({ search = '' }: { search?: string }) {
+interface BudgetViewProps {
+  search?: string;
+  onNavigateToTransactions?: (month: string, categoryId: number) => void;
+  onNavigateToYear?: (categoryId: number) => void;
+}
+
+export function BudgetView({ search = '', onNavigateToTransactions, onNavigateToYear }: BudgetViewProps) {
   const [month, setMonth] = useState(currentMonth());
   const [rows, setRows] = useState<BudgetRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -577,34 +583,57 @@ export function BudgetView({ search = '' }: { search?: string }) {
   const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const curYear = new Date().getFullYear();
 
+  // Uncategorized transactions for the current month
+  const uncatTotal = (() => {
+    const d = getData();
+    const monthStart = `${month}-01`;
+    const monthEnd = `${month}-31`;
+    const splitsByTxn2 = new Map<number, { categoryId: number }[]>();
+    for (const s of d.transactionSplits) {
+      const arr = splitsByTxn2.get(s.transactionId) ?? [];
+      arr.push(s);
+      splitsByTxn2.set(s.transactionId, arr);
+    }
+    let total = 0;
+    for (const t of d.transactions) {
+      if (t.txnDate < monthStart || t.txnDate > monthEnd) continue;
+      if (t.ignoreInBudget) continue;
+      const splits = splitsByTxn2.get(t.id);
+      if (splits && splits.length > 0) continue; // split = categorized
+      if (t.categoryId == null) total += t.amount;
+    }
+    return total;
+  })();
+
   return (
     <div>
-      <h1 className="view-title">Monthly Budget</h1>
-
-      {/* Month navigation */}
-      <div className="month-nav">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
-          const d = new Date(y, mon - 2, 1);
-          setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-        }}>‹</button>
-        <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-          <select value={String(mon).padStart(2, '0')} onChange={(e) => setMonth(`${y}-${e.target.value}`)}
-            style={{ fontWeight: 600, fontSize: '0.95rem', padding: '0.25rem 0.3rem' }}>
-            {MONTH_NAMES.map((name, idx) => (
-              <option key={idx} value={String(idx + 1).padStart(2, '0')}>{name}</option>
-            ))}
-          </select>
-          <select value={String(y)} onChange={(e) => setMonth(`${e.target.value}-${String(mon).padStart(2, '0')}`)}
-            style={{ fontWeight: 600, fontSize: '0.95rem', padding: '0.25rem 0.3rem' }}>
-            {[curYear - 2, curYear - 1, curYear, curYear + 1].map((yr) => (
-              <option key={yr} value={String(yr)}>{yr}</option>
-            ))}
-          </select>
+      {/* Title + month navigation on same row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+        <h1 className="view-title" style={{ margin: 0, flexShrink: 0 }}>Monthly Budget</h1>
+        <div className="month-nav" style={{ margin: 0, marginBottom: 0 }}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+            const d = new Date(y, mon - 2, 1);
+            setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+          }}>‹</button>
+          <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+            <select value={String(mon).padStart(2, '0')} onChange={(e) => setMonth(`${y}-${e.target.value}`)}
+              style={{ fontWeight: 600, fontSize: '0.95rem', padding: '0.25rem 0.3rem' }}>
+              {MONTH_NAMES.map((name, idx) => (
+                <option key={idx} value={String(idx + 1).padStart(2, '0')}>{name}</option>
+              ))}
+            </select>
+            <select value={String(y)} onChange={(e) => setMonth(`${e.target.value}-${String(mon).padStart(2, '0')}`)}
+              style={{ fontWeight: 600, fontSize: '0.95rem', padding: '0.25rem 0.3rem' }}>
+              {[curYear - 2, curYear - 1, curYear, curYear + 1].map((yr) => (
+                <option key={yr} value={String(yr)}>{yr}</option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+            const d = new Date(y, mon, 1);
+            setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+          }}>›</button>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
-          const d = new Date(y, mon, 1);
-          setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-        }}>›</button>
       </div>
 
       {/* Summary bubbles */}
@@ -633,7 +662,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
         {/* Month to Date */}
         <div style={{ flex: 1, minWidth: 220, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '0.875rem 1rem' }}>
           <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: '0.6rem' }}>Month to Date</div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${occasionalGroupId != null ? (incomeRows.length > 0 ? 5 : 3) : (incomeRows.length > 0 ? 4 : 2)}, 1fr)`, gap: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '0.5rem' }}>
             <div className="summary-card">
               <span className="summary-label">Spent</span>
               <span className="summary-value" style={{ color: '#3b82f6' }}>${formatAmount(totalSpent, 0)}</span>
@@ -645,7 +674,7 @@ export function BudgetView({ search = '' }: { search?: string }) {
             {occasionalGroupId != null && (
               <div className="summary-card">
                 <span className="summary-label">Spent Savings</span>
-                <span className="summary-value" style={{ color: '#1e3a8a' }}>${formatAmount(spentFromSavings, 0)}</span>
+                <span className="summary-value" style={{ color: 'var(--savings-blue)' }}>${formatAmount(spentFromSavings, 0)}</span>
               </div>
             )}
             {incomeRows.length > 0 && (
@@ -663,6 +692,14 @@ export function BudgetView({ search = '' }: { search?: string }) {
           </div>
         </div>
       </div>
+
+      {/* Uncategorized sum banner — below summary, above budget rows */}
+      {uncatTotal > 0 && (
+        <div className="card" style={{ borderLeft: '3px solid #fbbf24', marginBottom: '0.75rem', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 600 }}>Uncategorized this month:</span>
+          <span style={{ color: '#d97706', fontWeight: 700 }}>${formatAmount(uncatTotal, 0)}</span>
+        </div>
+      )}
 
       {/* Expense table — single table so columns align across all groups */}
       <div className="card">
@@ -802,6 +839,15 @@ export function BudgetView({ search = '' }: { search?: string }) {
                       <td style={{ position: 'relative', overflow: 'visible' }}>
                         <div style={{ fontSize: '0.9rem', paddingBottom: r.target > 0 ? 10 : 0, display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span title={r.note || undefined}>{r.categoryName}</span>
+                          {onNavigateToYear && (
+                            <span
+                              title={`View ${r.categoryName} trend in Year view`}
+                              style={{ cursor: 'pointer', opacity: 0.35, fontSize: '0.7rem', flexShrink: 0 }}
+                              onClick={() => onNavigateToYear(r.categoryId)}
+                            >
+                              📈
+                            </span>
+                          )}
                           {editNoteId === r.categoryId ? (
                             <input
                               autoFocus
@@ -868,9 +914,15 @@ export function BudgetView({ search = '' }: { search?: string }) {
                           </span>
                         )}
                       </td>
-                      {/* Spent */}
+                      {/* Spent — clickable to view transactions filtered to this category+month */}
                       <td className="num budget-num" style={{ color: budgetDiffColor(r.spent - r.target, r.target) }}>
-                        ${formatAmount(r.spent, 0)}
+                        <span
+                          style={{ cursor: onNavigateToTransactions ? 'pointer' : undefined, textDecoration: onNavigateToTransactions ? 'underline dotted' : undefined }}
+                          title={onNavigateToTransactions ? `View transactions for ${r.categoryName} in ${month}` : undefined}
+                          onClick={() => onNavigateToTransactions?.(month, r.categoryId)}
+                        >
+                          ${formatAmount(r.spent, 0)}
+                        </span>
                       </td>
                       {/* Left */}
                       <td className="num budget-num" style={{ color: budgetDiffColor(r.spent - r.target, r.target) }}>

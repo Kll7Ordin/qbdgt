@@ -1,5 +1,6 @@
 /* ── Design tokens ── */
-:root {
+:root,
+html.light {
   --bg:         #f4f6f8;
   --bg-2:       #ffffff;
   --bg-3:       #eaecef;
@@ -25,9 +26,11 @@
   --green-muted: rgba(26,158,139,0.12);
   --red:         #e53e3e;
   --red-muted:   rgba(229,62,62,0.1);
+  --neg-amount:  #c96a6a;
   --yellow:      #d97706;
   --yellow-muted: rgba(217,119,6,0.1);
   --purple:      #7c3aed;
+  --savings-blue: #1e3a8a;
 
   --radius-sm:  5px;
   --radius:     8px;
@@ -42,6 +45,7 @@
   --input-bg: var(--input-bg);
   --border-color: var(--border);
 
+  color-scheme: light;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
   font-size: 21px;
@@ -53,6 +57,46 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* ── Dark mode tokens ── */
+html.dark {
+  --bg:         #0f1117;
+  --bg-2:       #1a1d27;
+  --bg-3:       #252836;
+  --card-bg:    #1a1d27;
+  --card-bg-2:  #0f1117;
+  --input-bg:   #1e2130;
+  --border:     #2e3347;
+  --border-2:   #252836;
+
+  --text:        #e8ecf4;
+  --text-2:      #b0bdd0;
+  --text-3:      #7a8aa0;
+
+  --accent:      #1fb8a3;
+  --accent-hover:#17a090;
+  --accent-muted: rgba(31,184,163,0.15);
+  --accent-glow:  rgba(31,184,163,0.25);
+
+  --grad-start:  #1fb8a3;
+  --grad-end:    #34d369;
+
+  --green:       #1fb8a3;
+  --green-muted: rgba(31,184,163,0.15);
+  --red:         #f05252;
+  --red-muted:   rgba(240,82,82,0.15);
+  --neg-amount:  #e08585;
+  --yellow:      #f59e0b;
+  --yellow-muted: rgba(245,158,11,0.15);
+  --purple:      #a78bfa;
+  --savings-blue: #60a5fa;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow:    0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+
+  color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

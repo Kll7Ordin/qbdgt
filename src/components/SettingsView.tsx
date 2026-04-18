@@ -1,4 +1,5 @@
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useState, useEffect, useSyncExternalStore, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { PasswordPrompt } from './PasswordPrompt';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import {
@@ -9,13 +10,16 @@ import {
   addCategory,
   deleteCategory,
   addCategoryRule,
+  updateCategoryRule,
   deleteCategoryRule,
+  type CategoryRule,
   addRecurringTemplate,
   deleteRecurringTemplate,
   updateRecurringTemplate,
   purgeTransactionsByMonth,
   updateCategoryColor,
   updateCategoryIsIncome,
+  updateCategoryBucket,
   getAISettings,
   updateAISettings,
   isCurrentFileEncrypted,
@@ -25,7 +29,7 @@ import {
   type RecurringTemplate,
   type Transaction,
 } from '../db';
-import { recategorizeAll } from '../logic/categorize';
+import { recategorizeAll, bulkApplySplitRule, bulkCategorizeByDescriptor } from '../logic/categorize';
 import { createReadableArchive } from '../utils/export';
 import { encryptData } from '../utils/crypto';
 import { confirmPaypalMatch, discardPaypalTransactions, type PaypalMatchCandidate } from '../logic/matching';
@@ -40,9 +44,12 @@ interface Props {
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
   search?: string;
+  darkMode?: boolean;
+  onDarkModeChange?: (dark: boolean) => void;
+  onRegisterBack?: (handler: (() => void) | null) => void;
 }
 
-export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
+export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = false, onDarkModeChange, onRegisterBack }: Props) {
   const data = useSyncExternalStore(subscribe, getData);
   const categories = data.categories;
   const catMap = new Map(categories.map((c) => [c.id, c.name]));
@@ -54,12 +61,40 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
     .filter((t) => !sq || t.descriptor.toLowerCase().includes(sq) || (t.categoryId && (catMap.get(t.categoryId) ?? '').toLowerCase().includes(sq)));
 
   const [pendingEncryptedPath, setPendingEncryptedPath] = useState<string | null>(null);
+  const [showCategoriesScreen, setShowCategoriesScreen] = useState(false);
+  const [showRulesScreen, setShowRulesScreen] = useState(false);
+
+  // Register a custom back handler when sub-screens are open so the tab bar back button closes them
+  useEffect(() => {
+    if (showCategoriesScreen) {
+      onRegisterBack?.(() => setShowCategoriesScreen(false));
+    } else if (showRulesScreen) {
+      onRegisterBack?.(() => setShowRulesScreen(false));
+    } else {
+      onRegisterBack?.(null);
+    }
+  }, [showCategoriesScreen, showRulesScreen, onRegisterBack]);
+
   const [newCat, setNewCat] = useState('');
   const [newPattern, setNewPattern] = useState('');
   const [newMatchType, setNewMatchType] = useState<'exact' | 'contains'>('exact');
   const [newRuleCat, setNewRuleCat] = useState<number | ''>('');
   const [newRuleAmount, setNewRuleAmount] = useState('');
   const [newRuleAmountRequired, setNewRuleAmountRequired] = useState(false);
+  const [newRuleIsSplit, setNewRuleIsSplit] = useState(false);
+  const [newRuleSplitType, setNewRuleSplitType] = useState<'%' | '$'>('%');
+  const [newRuleSplits, setNewRuleSplits] = useState<Array<{ categoryId: number | ''; amount: string }>>([
+    { categoryId: '', amount: '' },
+    { categoryId: '', amount: '' },
+  ]);
+
+  const [editingRule, setEditingRule] = useState<CategoryRule | null>(null);
+  const [editPattern, setEditPattern] = useState('');
+  const [editMatchType, setEditMatchType] = useState<'exact' | 'contains'>('exact');
+  const [editCatId, setEditCatId] = useState<number | ''>('');
+  const [editAmountMatch, setEditAmountMatch] = useState('');
+  const [editSplitType, setEditSplitType] = useState<'%' | '$'>('%');
+  const [editSplits, setEditSplits] = useState<Array<{ categoryId: number | ''; amount: string }>>([]);
 
   const [tmplDescriptor, setTmplDescriptor] = useState('');
   const [tmplAmount, setTmplAmount] = useState('');
@@ -215,15 +250,38 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
     await deleteCategory(id);
   }
 
-  async function handleAddRule() {
-    if (!newPattern || !newRuleCat) return;
+  async function handleAddRule(forceSplit?: boolean) {
+    if (!newPattern) return;
+    const isSplit = forceSplit ?? newRuleIsSplit;
     const amountVal = newRuleAmountRequired && newRuleAmount.trim() ? parseFloat(newRuleAmount) : null;
-    await addCategoryRule({
-      matchType: newMatchType,
-      pattern: newPattern.toLowerCase(),
-      categoryId: newRuleCat as number,
-      amountMatch: amountVal,
-    });
+    if (isSplit) {
+      const validSplits = newRuleSplits.filter((s) => s.categoryId !== '' && s.amount.trim() !== '');
+      if (validSplits.length < 2) return;
+      const primaryCatId = validSplits[0].categoryId as number;
+      await addCategoryRule({
+        matchType: newMatchType,
+        pattern: newPattern.toLowerCase(),
+        categoryId: primaryCatId,
+        amountMatch: amountVal,
+        splits: validSplits.map((s) => ({
+          categoryId: s.categoryId as number,
+          ...(newRuleSplitType === '%' ? { percent: parseFloat(s.amount) } : { amount: parseFloat(s.amount) }),
+        })),
+      });
+      setNewRuleSplits([
+        { categoryId: '', amount: '' },
+        { categoryId: '', amount: '' },
+      ]);
+      setNewRuleIsSplit(false);
+    } else {
+      if (!newRuleCat) return;
+      await addCategoryRule({
+        matchType: newMatchType,
+        pattern: newPattern.toLowerCase(),
+        categoryId: newRuleCat as number,
+        amountMatch: amountVal,
+      });
+    }
     setNewPattern('');
     setNewRuleAmount('');
     setNewRuleAmountRequired(false);
@@ -231,6 +289,58 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
 
   async function handleDeleteRule(id: number) {
     await deleteCategoryRule(id);
+  }
+
+  function openEditRule(r: CategoryRule) {
+    setEditingRule(r);
+    setEditPattern(r.pattern);
+    setEditMatchType(r.matchType);
+    setEditCatId(r.categoryId);
+    setEditAmountMatch(r.amountMatch != null ? String(r.amountMatch) : '');
+    if (r.splits && r.splits.length >= 2) {
+      const usePercent = r.splits[0].percent != null;
+      setEditSplitType(usePercent ? '%' : '$');
+      setEditSplits(r.splits.map((s) => ({
+        categoryId: s.categoryId,
+        amount: usePercent ? String(s.percent ?? '') : String(s.amount ?? ''),
+      })));
+    } else {
+      setEditSplitType('%');
+      setEditSplits([]);
+    }
+  }
+
+  async function handleSaveRule() {
+    if (!editingRule || !editPattern.trim()) return;
+    const amountVal = editAmountMatch.trim() ? parseFloat(editAmountMatch) : null;
+    const isSplit = editSplits.length >= 2;
+    if (isSplit) {
+      const validSplits = editSplits.filter((s) => s.categoryId !== '' && s.amount.trim() !== '');
+      if (validSplits.length < 2) return;
+      const splitItems = validSplits.map((s) => ({
+        categoryId: s.categoryId as number,
+        ...(editSplitType === '%' ? { percent: parseFloat(s.amount) } : { amount: parseFloat(s.amount) }),
+      }));
+      await updateCategoryRule(editingRule.id, {
+        pattern: editPattern.toLowerCase(),
+        matchType: editMatchType,
+        categoryId: splitItems[0].categoryId,
+        amountMatch: amountVal,
+        splits: splitItems,
+      });
+      await bulkApplySplitRule(editPattern, editMatchType, amountVal, splitItems);
+    } else {
+      if (!editCatId) return;
+      await updateCategoryRule(editingRule.id, {
+        pattern: editPattern.toLowerCase(),
+        matchType: editMatchType,
+        categoryId: editCatId as number,
+        amountMatch: amountVal,
+        splits: undefined,
+      });
+      await bulkCategorizeByDescriptor(editPattern, editCatId as number, editMatchType, amountVal);
+    }
+    setEditingRule(null);
   }
 
   async function runRecategorize() {
@@ -282,6 +392,23 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
       dayOfMonth: parseInt(editTmplDay),
     });
     setEditTmplId(null);
+  }
+
+  // Backup settings (stored in localStorage; defaults: on, 2 backups, same dir as data file)
+  const filePath = getFilePath();
+  const defaultBackupDir = filePath ? filePath.replace(/[\\/][^\\/]+$/, '') : '';
+  const [backupEnabled, setBackupEnabled] = useState(() => {
+    const stored = localStorage.getItem('budget-app-backup-enabled');
+    return stored === null ? true : stored === 'true'; // default ON
+  });
+  const [backupCount, setBackupCount] = useState(() => parseInt(localStorage.getItem('budget-app-backup-count') ?? '2', 10));
+  const [backupDir, setBackupDir] = useState(() => localStorage.getItem('budget-app-backup-dir') || defaultBackupDir);
+  const backupSaveRef = useRef(false);
+
+  function saveBackupSettings(enabled: boolean, count: number, dir: string) {
+    localStorage.setItem('budget-app-backup-enabled', String(enabled));
+    localStorage.setItem('budget-app-backup-count', String(count));
+    localStorage.setItem('budget-app-backup-dir', dir);
   }
 
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -356,10 +483,9 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
     setTimeout(() => setJsonExportStatus(null), 8000);
   }
 
-  const filePath = getFilePath();
-
   const sections = [
     { id: 'settings-display', label: 'Display' },
+    { id: 'settings-backup', label: 'Backup' },
     { id: 'settings-purge', label: 'Purge' },
     { id: 'settings-paypal', label: 'PayPal' },
     { id: 'settings-categories', label: 'Categories' },
@@ -416,6 +542,70 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
             ))}
           </select>
         </div>
+        <div className="field" style={{ marginTop: '0.5rem' }}>
+          <label>Appearance</label>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              className={`btn btn-sm ${!darkMode ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => onDarkModeChange?.(false)}
+            >
+              ☀ Light
+            </button>
+            <button
+              className={`btn btn-sm ${darkMode ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => onDarkModeChange?.(true)}
+            >
+              ☾ Dark
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Backup */}
+      <div id="settings-backup" className="card" style={{ marginBottom: '1rem' }}>
+        <div className="section-title">Automatic Backup</div>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-2)', marginBottom: '0.75rem' }}>
+          Creates unencrypted JSON backups on startup. Oldest backup is overwritten when the limit is reached.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.75rem' }}>
+          <input
+            type="checkbox"
+            checked={backupEnabled}
+            onChange={(e) => { setBackupEnabled(e.target.checked); saveBackupSettings(e.target.checked, backupCount, backupDir); }}
+            style={{ width: 16, height: 16 }}
+          />
+          <span style={{ fontSize: '0.875rem' }}>Enable automatic backups</span>
+        </label>
+        {backupEnabled && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div className="field">
+              <label>Number of backups to keep (1–5)</label>
+              <input
+                type="number" min="1" max="5"
+                value={backupCount}
+                onChange={(e) => { const v = Math.max(1, Math.min(5, parseInt(e.target.value) || 1)); setBackupCount(v); saveBackupSettings(backupEnabled, v, backupDir); }}
+                style={{ maxWidth: 80 }}
+              />
+            </div>
+            <div className="field">
+              <label>Backup directory</label>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  value={backupDir}
+                  onChange={(e) => { setBackupDir(e.target.value); if (!backupSaveRef.current) { backupSaveRef.current = true; setTimeout(() => { backupSaveRef.current = false; saveBackupSettings(backupEnabled, backupCount, e.target.value); }, 500); } }}
+                  placeholder="/home/user/backups"
+                  style={{ flex: 1, fontSize: '0.82rem' }}
+                />
+                <button className="btn btn-ghost btn-sm" onClick={async () => {
+                  const { open: openDir } = await import('@tauri-apps/plugin-dialog');
+                  const dir = await openDir({ directory: true, multiple: false });
+                  if (dir && typeof dir === 'string') { setBackupDir(dir); saveBackupSettings(backupEnabled, backupCount, dir); }
+                }}>Browse</button>
+              </div>
+            </div>
+            {backupDir && <p style={{ fontSize: '0.8rem', color: 'var(--text-3)' }}>Backups saved as <code>qbdgt-backup-*.json</code> in {backupDir}</p>}
+          </div>
+        )}
       </div>
 
       {filePath && (
@@ -457,7 +647,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
         <p style={{ fontSize: '0.85rem', opacity: 0.9, marginBottom: '0.75rem' }}>
           Permanently delete transactions for a specific month, optionally filtered by type. Category rules are kept. This cannot be undone.
         </p>
-        <div className="row" style={{ alignItems: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
           <div className="field" style={{ flex: '0 1 auto', minWidth: 100 }}>
             <label>Month</label>
             <select
@@ -654,106 +844,228 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
         </div>
       )}
 
-      {/* Categories */}
-      <div id="settings-categories" className="section-title">Categories</div>
-      <div className="card">
-        {categories.map((c) => (
-          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0', borderBottom: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input
-                type="color"
-                value={c.color ?? '#888888'}
-                onChange={(e) => updateCategoryColor(c.id, e.target.value)}
-                title="Category color"
-                style={{ width: 28, height: 28, border: 'none', borderRadius: 6, cursor: 'pointer', padding: 0, background: 'none' }}
-              />
-              <span style={{ fontWeight: 500 }}>{c.name}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <button
-                className={`btn btn-sm ${c.isIncome ? 'btn-primary' : 'btn-ghost'}`}
-                title={c.isIncome ? 'Marked as income — click to unmark' : 'Mark as income category'}
-                onClick={() => updateCategoryIsIncome(c.id, !c.isIncome)}
-                style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem' }}
-              >
-                Income
-              </button>
-              <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(c.id)}>
-                &times;
-              </button>
+      {/* Categories — button to open full screen */}
+      <div id="settings-categories" className="card" style={{ marginBottom: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Categories</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginTop: 2 }}>
+              {categories.length} categories
             </div>
           </div>
-        ))}
-        {categories.length === 0 && <p className="empty">No categories</p>}
-        <div className="row" style={{ marginTop: '0.5rem' }}>
-          <div className="field">
-            <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category" />
-          </div>
-          <button className="btn btn-primary" onClick={handleAddCategory}>Add</button>
+          <button className="btn btn-primary" onClick={() => setShowCategoriesScreen(true)}>
+            Manage →
+          </button>
         </div>
       </div>
 
-      {/* Rules */}
-      <div id="settings-rules" className="section-title">Category Rules</div>
-      <div className="card">
-        <table className="data-table">
-          <thead>
-            <tr><th>Pattern</th><th>Match</th><th>Amount</th><th>Category</th><th></th></tr>
-          </thead>
-          <tbody>
-            {rules.map((r) => (
-              <tr key={r.id}>
-                <td>{r.pattern}</td>
-                <td><span className="chip">{r.matchType}</span></td>
-                <td>{r.amountMatch != null ? `$${formatAmount(r.amountMatch)}` : '—'}</td>
-                <td>{r.catName}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteRule(r.id)}>&times;</button></td>
-              </tr>
+      {/* Rules — button to open full screen */}
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Category Rules</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginTop: 2 }}>
+              {data.categoryRules.length} rules
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={() => setShowRulesScreen(true)}>
+            Manage →
+          </button>
+        </div>
+      </div>
+
+      {/* Categories full-screen overlay (below tab bar) */}
+      {showCategoriesScreen && (
+        <div style={{ position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, zIndex: 200, background: 'var(--bg)', overflowY: 'auto', padding: '1.5rem clamp(0.75rem, 6vw, 8rem)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+            <button className="btn btn-ghost" onClick={() => setShowCategoriesScreen(false)}>← Back</button>
+            <h1 style={{ margin: 0, fontSize: '1.45rem', fontWeight: 700 }}>Categories</h1>
+          </div>
+          <div className="card">
+            {categories.map((c) => (
+              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0', borderBottom: '1px solid var(--border)', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 120 }}>
+                  <input
+                    type="color"
+                    value={c.color ?? '#888888'}
+                    onChange={(e) => updateCategoryColor(c.id, e.target.value)}
+                    title="Category color"
+                    style={{ width: 28, height: 28, border: 'none', borderRadius: 6, cursor: 'pointer', padding: 0, background: 'none' }}
+                  />
+                  <span style={{ fontWeight: 500 }}>{c.name}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {data.savingsBuckets.length > 0 && (
+                    <select
+                      title="Link to savings bucket — transactions categorized here fill this bucket"
+                      value={c.savingsBucketId ?? ''}
+                      onChange={(e) => updateCategoryBucket(c.id, e.target.value ? Number(e.target.value) : null)}
+                      style={{ fontSize: '0.75rem', padding: '0.1rem 0.3rem', maxWidth: 130 }}
+                    >
+                      <option value="">No bucket</option>
+                      {data.savingsBuckets.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    className={`btn btn-sm ${c.isIncome ? 'btn-primary' : 'btn-ghost'}`}
+                    title={c.isIncome ? 'Marked as income — click to unmark' : 'Mark as income category'}
+                    onClick={() => updateCategoryIsIncome(c.id, !c.isIncome)}
+                    style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem' }}
+                  >
+                    Income
+                  </button>
+                  <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(c.id)}>
+                    &times;
+                  </button>
+                </div>
+              </div>
             ))}
-            {rules.length === 0 && <tr><td colSpan={5} className="empty">No rules</td></tr>}
-          </tbody>
-        </table>
-
-        <div className="row" style={{ marginTop: '0.5rem' }}>
-          <div className="field">
-            <label>Pattern</label>
-            <input value={newPattern} onChange={(e) => setNewPattern(e.target.value)} placeholder="keyword" />
+            {categories.length === 0 && <p className="empty">No categories</p>}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', alignItems: 'center' }}>
+              <input
+                style={{ flex: 1 }}
+                value={newCat}
+                onChange={(e) => setNewCat(e.target.value)}
+                placeholder="New category"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+              />
+              <button className="btn btn-primary" style={{ flexShrink: 0 }} onClick={handleAddCategory}>Add</button>
+            </div>
           </div>
-          <div className="field">
-            <label>Match</label>
-            <SearchableSelect
-              options={[
-                { value: 'contains', label: 'Contains' },
-                { value: 'exact', label: 'Exact' },
-              ]}
-              value={newMatchType}
-              onChange={(v) => setNewMatchType(v as 'exact' | 'contains')}
-              placeholder="Match"
-            />
-          </div>
-          <div className="field">
-            <label>Category</label>
-            <SearchableSelect
-              options={categories.map((c) => ({ value: c.id, label: c.name }))}
-              value={newRuleCat}
-              onChange={(v) => setNewRuleCat(v === '' ? '' : Number(v))}
-              placeholder="Select..."
-            />
-          </div>
-          <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
-            <input type="checkbox" id="rule-amount-cb" checked={!!newRuleAmountRequired} onChange={(e) => { setNewRuleAmountRequired(e.target.checked); if (!e.target.checked) setNewRuleAmount(''); }} />
-            <label htmlFor="rule-amount-cb" style={{ marginBottom: 0 }}>Require amount</label>
-            {newRuleAmountRequired && (
-              <input type="number" step="0.01" value={newRuleAmount} onChange={(e) => setNewRuleAmount(e.target.value)} placeholder="0" style={{ width: '100px' }} />
-            )}
-          </div>
-          <button className="btn btn-primary" onClick={handleAddRule}>Add</button>
         </div>
+      )}
 
-        <button className="btn btn-ghost" onClick={runRecategorize} style={{ marginTop: '0.5rem' }}>
-          Re-categorize uncategorized
-        </button>
-      </div>
+      {/* Rules full-screen overlay (below tab bar) */}
+      {showRulesScreen && (
+        <div style={{ position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, zIndex: 200, background: 'var(--bg)', overflowY: 'auto', padding: '1.5rem clamp(0.75rem, 6vw, 8rem)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+            <button className="btn btn-ghost" onClick={() => setShowRulesScreen(false)}>← Back</button>
+            <h1 style={{ margin: 0, fontSize: '1.45rem', fontWeight: 700 }}>Category Rules</h1>
+          </div>
+          <div className="card">
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr><th>Pattern</th><th>Match</th><th>Amount</th><th>Category</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {rules
+                    .map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ wordBreak: 'break-word', maxWidth: 260 }}>{r.pattern}</td>
+                        <td><span className="chip">{r.matchType}</span></td>
+                        <td>{r.amountMatch != null ? `$${formatAmount(r.amountMatch)}` : '—'}</td>
+                        <td>
+                          {r.splits && r.splits.length >= 2
+                            ? <span style={{ fontSize: '0.8rem', color: 'var(--accent)' }}>Split: {r.splits.map((s) => `${catMap.get(s.categoryId) ?? '?'} ${s.percent != null ? s.percent + '%' : '$' + (s.amount ?? 0)}`).join(' + ')}</span>
+                            : r.catName}
+                        </td>
+                        <td style={{ display: 'flex', gap: '0.3rem' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => openEditRule(r)}>Edit</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteRule(r.id)}>&times;</button>
+                        </td>
+                      </tr>
+                    ))}
+                  {data.categoryRules.length === 0 && <tr><td colSpan={5} className="empty">No rules</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {/* Simple rule */}
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Add simple rule</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+                <div className="field" style={{ flex: '2 1 160px', marginBottom: 0 }}>
+                  <label>Pattern</label>
+                  <input value={newPattern} onChange={(e) => setNewPattern(e.target.value)} placeholder="keyword" />
+                </div>
+                <div className="field" style={{ flex: '1 1 100px', marginBottom: 0 }}>
+                  <label>Match</label>
+                  <SearchableSelect
+                    options={[{ value: 'contains', label: 'Contains' }, { value: 'exact', label: 'Exact' }]}
+                    value={newMatchType}
+                    onChange={(v) => setNewMatchType(v as 'exact' | 'contains')}
+                    placeholder="Match"
+                  />
+                </div>
+                <div className="field" style={{ flex: '2 1 160px', marginBottom: 0 }}>
+                  <label>Category</label>
+                  <SearchableSelect
+                    options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                    value={newRuleCat}
+                    onChange={(v) => setNewRuleCat(v === '' ? '' : Number(v))}
+                    placeholder="Select..."
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                  <input type="checkbox" id="rule-amount-cb2" checked={!!newRuleAmountRequired} onChange={(e) => { setNewRuleAmountRequired(e.target.checked); if (!e.target.checked) setNewRuleAmount(''); }} />
+                  <label htmlFor="rule-amount-cb2" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>Amt</label>
+                  {newRuleAmountRequired && (
+                    <input type="number" step="0.01" value={newRuleAmount} onChange={(e) => setNewRuleAmount(e.target.value)} placeholder="0" style={{ width: '80px' }} />
+                  )}
+                </div>
+                <button className="btn btn-primary" style={{ flexShrink: 0, alignSelf: 'flex-end' }} onClick={() => handleAddRule(false)}>Add Rule</button>
+              </div>
+            </div>
+
+            {/* Split rule */}
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: '1rem', paddingTop: '0.75rem' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Add split rule — splits transaction into multiple categories</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end', marginBottom: '0.5rem' }}>
+                <div className="field" style={{ flex: '2 1 160px', marginBottom: 0 }}>
+                  <label>Pattern</label>
+                  <input value={newPattern} onChange={(e) => setNewPattern(e.target.value)} placeholder="keyword" />
+                </div>
+                <div className="field" style={{ flex: '1 1 100px', marginBottom: 0 }}>
+                  <label>Match</label>
+                  <SearchableSelect
+                    options={[{ value: 'contains', label: 'Contains' }, { value: 'exact', label: 'Exact' }]}
+                    value={newMatchType}
+                    onChange={(v) => setNewMatchType(v as 'exact' | 'contains')}
+                    placeholder="Match"
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
+                  <button className={`btn btn-sm ${newRuleSplitType === '%' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setNewRuleSplitType('%')}>%</button>
+                  <button className={`btn btn-sm ${newRuleSplitType === '$' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setNewRuleSplitType('$')}>$</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', background: 'var(--bg-3)', padding: '0.65rem', borderRadius: 'var(--radius)' }}>
+                {newRuleSplits.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '2 1 140px' }}>
+                      <SearchableSelect
+                        options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                        value={s.categoryId}
+                        onChange={(v) => setNewRuleSplits((prev) => prev.map((x, j) => j === i ? { ...x, categoryId: v === '' ? '' : Number(v) } : x))}
+                        placeholder="Category"
+                      />
+                    </div>
+                    <input type="number" step="0.01" placeholder={newRuleSplitType === '%' ? '50' : '0.00'} value={s.amount} onChange={(e) => setNewRuleSplits((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} style={{ width: 80, fontSize: '0.82rem' }} />
+                    {newRuleSplits.length > 2 && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => setNewRuleSplits((prev) => prev.filter((_, j) => j !== i))}>×</button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setNewRuleSplits((prev) => [...prev, { categoryId: '', amount: '' }])}>+ Add row</button>
+                  {newRuleSplitType === '%' && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>
+                      Total: {newRuleSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button className="btn btn-primary" style={{ marginTop: '0.5rem' }} onClick={() => handleAddRule(true)}>Add Split Rule</button>
+            </div>
+
+            <button className="btn btn-ghost btn-sm" onClick={runRecategorize} style={{ marginTop: '1rem' }}>
+              Re-categorize uncategorized
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Recurring Templates */}
       <div id="settings-recurring" className="section-title">Recurring Templates</div>
@@ -1152,6 +1464,77 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '' }: Props) {
             </div>
           </div>
         </div>
+      )}
+      {editingRule !== null && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: 480 }}>
+            <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '1rem' }}>Edit Rule</div>
+
+            <div className="field">
+              <label>Pattern</label>
+              <input value={editPattern} onChange={(e) => setEditPattern(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <button className={`btn btn-sm ${editMatchType === 'exact' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setEditMatchType('exact')}>Exact</button>
+              <button className={`btn btn-sm ${editMatchType === 'contains' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setEditMatchType('contains')}>Contains</button>
+            </div>
+            <div className="field">
+              <label>Amount condition (optional)</label>
+              <input type="number" step="0.01" value={editAmountMatch} onChange={(e) => setEditAmountMatch(e.target.value)} placeholder="any" />
+            </div>
+
+            {editSplits.length >= 2 ? (
+              <>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem' }}>Split by:
+                  <button className={`btn btn-sm ${editSplitType === '%' ? 'btn-primary' : 'btn-ghost'}`} style={{ marginLeft: '0.5rem' }} onClick={() => setEditSplitType('%')}>%</button>
+                  <button className={`btn btn-sm ${editSplitType === '$' ? 'btn-primary' : 'btn-ghost'}`} style={{ marginLeft: '0.25rem' }} onClick={() => setEditSplitType('$')}>$</button>
+                </div>
+                {editSplits.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.4rem', alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <SearchableSelect
+                        options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                        value={s.categoryId}
+                        onChange={(v) => setEditSplits((prev) => prev.map((x, j) => j === i ? { ...x, categoryId: v === '' ? '' : Number(v) } : x))}
+                        placeholder="Category"
+                      />
+                    </div>
+                    <input type="number" step="0.01" placeholder={editSplitType === '%' ? '50' : '0.00'} value={s.amount}
+                      onChange={(e) => setEditSplits((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))}
+                      style={{ width: 80 }} />
+                    {editSplits.length > 2 && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => setEditSplits((prev) => prev.filter((_, j) => j !== i))}>×</button>}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditSplits((prev) => [...prev, { categoryId: '', amount: '' }])}>+ Add row</button>
+                  {(() => {
+                    const total = editSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+                    const ok = editSplitType === '%' ? Math.abs(total - 100) < 0.01 : true;
+                    return <span style={{ fontSize: '0.75rem', color: ok ? 'var(--green)' : 'var(--red)' }}>
+                      {editSplitType === '%' ? `Total: ${total.toFixed(1)}%` : `Total: $${total.toFixed(2)}`}
+                    </span>;
+                  })()}
+                </div>
+              </>
+            ) : (
+              <div className="field">
+                <label>Category</label>
+                <SearchableSelect
+                  options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                  value={editCatId}
+                  onChange={(v) => setEditCatId(v === '' ? '' : Number(v))}
+                  placeholder="Select category"
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button className="btn btn-primary" onClick={handleSaveRule}>Save & Apply</button>
+              <button className="btn btn-ghost" onClick={() => setEditingRule(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

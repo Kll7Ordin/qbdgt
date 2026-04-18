@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   getData,
   bulkAddTransactions,
+  setSplits,
   updateTransaction,
   addCategory,
   upsertBudget,
@@ -91,8 +92,12 @@ export function ImportView() {
     txns: Omit<Transaction, 'id'>[],
     source: string,
   ) {
-    categorizeTransactionsInPlace(txns);
+    const splitActions = categorizeTransactionsInPlace(txns);
     const { duplicates, unique } = detectDuplicates(txns);
+    // Remap split action indices from the original txns array to the unique txns array
+    const remappedSplits = splitActions
+      .map((a) => ({ ...a, txnIndex: unique.indexOf(txns[a.txnIndex]) }))
+      .filter((a) => a.txnIndex >= 0);
 
     if (duplicates.length > 0) {
       setDupSelected(new Set());
@@ -105,6 +110,7 @@ export function ImportView() {
       source,
       parsed: txns.length,
       duplicatesDropped: duplicates.length,
+      splitActions: remappedSplits,
     });
   }
 
@@ -113,9 +119,16 @@ export function ImportView() {
     source: string;
     parsed: number;
     duplicatesDropped: number;
+    splitActions?: Array<{ txnIndex: number; splits: Array<{ categoryId: number; amount: number }> }>;
   }) {
-    const { txnsToInsert, source, parsed, duplicatesDropped } = args;
+    const { txnsToInsert, source, parsed, duplicatesDropped, splitActions = [] } = args;
     const ids = await bulkAddTransactions(txnsToInsert);
+    // Apply split rules
+    for (const action of splitActions) {
+      const txnId = ids[action.txnIndex];
+      if (txnId == null) continue;
+      await setSplits(txnId, action.splits.map((s) => ({ categoryId: s.categoryId, amount: s.amount })));
+    }
 
     let matched = 0;
     if (source === 'paypal_paste') {
@@ -339,8 +352,14 @@ export function ImportView() {
         });
       }
 
-      categorizeTransactionsInPlace(toInsert);
-      if (toInsert.length > 0) await bulkAddTransactions(toInsert);
+      const amazonSplits = categorizeTransactionsInPlace(toInsert);
+      if (toInsert.length > 0) {
+        const amazonIds = await bulkAddTransactions(toInsert);
+        for (const action of amazonSplits) {
+          const txnId = amazonIds[action.txnIndex];
+          if (txnId != null) await setSplits(txnId, action.splits.map((s) => ({ categoryId: s.categoryId, amount: s.amount })));
+        }
+      }
 
       setResult({
         parsed: orders.length,

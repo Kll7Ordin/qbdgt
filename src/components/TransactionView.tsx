@@ -1,10 +1,11 @@
-import { useState, useCallback, useSyncExternalStore, useEffect } from 'react';
+import { useState, useCallback, useSyncExternalStore, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   getData,
   subscribe,
   addTransaction,
   updateTransaction,
+  deleteTransactions,
   addCategoryRule,
   getAISettings,
   getAICategoryFeedback,
@@ -12,22 +13,12 @@ import {
   type Transaction,
   type TransactionSplit,
 } from '../db';
-import { bulkCategorizeByDescriptor } from '../logic/categorize';
+import { bulkCategorizeByDescriptor, bulkApplySplitRule, getGuessScores } from '../logic/categorize';
 import { findRefundCandidates, applyRefundToOriginalMonth, type RefundCandidate } from '../logic/refunds';
 import { SplitEditor } from './SplitEditor';
 import { SearchableSelect } from './SearchableSelect';
-import { TransactionLookup } from './TransactionLookup';
 import { formatAmount } from '../utils/format';
 import { suggestCategories, type CategorySuggestion } from '../logic/llm';
-
-// Normalize descriptor for fuzzy matching (strips phone numbers, long digit sequences)
-function normalizeDesc(desc: string): string {
-  return desc.toLowerCase()
-    .replace(/\d{4,}/g, '')       // remove long digit sequences
-    .replace(/[^a-z\s]/g, ' ')    // non-alpha → space
-    .replace(/\s+/g, ' ').trim()
-    .split(' ').slice(0, 5).join(' '); // first 5 significant words
-}
 
 // Module-level Ollama cache so suggestions persist across tab switches
 const _ollamaCache = new Map<number, CategorySuggestion>();
@@ -44,7 +35,18 @@ function useAppData() {
   return snapshot;
 }
 
-export function TransactionView({ search = '' }: { search?: string }) {
+interface NavFilter {
+  month?: string;
+  categoryId?: number;
+}
+
+interface TransactionViewProps {
+  search?: string;
+  navFilter?: NavFilter | null;
+  onNavConsumed?: () => void;
+}
+
+export function TransactionView({ search = '', navFilter, onNavConsumed }: TransactionViewProps) {
   const appData = useAppData();
   const categories = appData.categories;
   const allTransactions = appData.transactions;
@@ -58,6 +60,12 @@ export function TransactionView({ search = '' }: { search?: string }) {
   const [ruleCatId, setRuleCatId] = useState<number | ''>('');
   const [ruleAmount, setRuleAmount] = useState('');
   const [ruleAmountRequired, setRuleAmountRequired] = useState(false);
+  const [ruleIsSplit, setRuleIsSplit] = useState(false);
+  const [ruleSplitType, setRuleSplitType] = useState<'%' | '$'>('%');
+  const [ruleSplits, setRuleSplits] = useState<Array<{ categoryId: number | ''; amount: string }>>([
+    { categoryId: '', amount: '' },
+    { categoryId: '', amount: '' },
+  ]);
   const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [refundPrompts, setRefundPrompts] = useState<RefundCandidate[]>([]);
@@ -66,53 +74,23 @@ export function TransactionView({ search = '' }: { search?: string }) {
   const [moveMonthTxn, setMoveMonthTxn] = useState<Transaction | null>(null);
   const [moveMonthYear, setMoveMonthYear] = useState('');
   const [moveMonthNum, setMoveMonthNum] = useState('');
-  const [lookupTxn, setLookupTxn] = useState<Transaction | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ text: string; top: number; left: number; flipUp: boolean } | null>(null);
   // Ollama cache state (async, supplements history matching)
   const [ollamaSuggestions, setOllamaSuggestions] = useState<Map<number, CategorySuggestion>>(() => new Map(_ollamaCache));
 
-  // History-based suggestions computed inline every render — guaranteed fresh, no timing issues.
-  // Uses exact normalized-descriptor match first, then word-level fallback (catches
-  // "walmart.ca" matching "walmart Victoria Bc", phone-number variants, etc.)
-  const _descFreq = new Map<string, Map<number, number>>();
-  const _wordFreq = new Map<string, Map<number, number>>();
-  for (const t of allTransactions) {
-    if (t.categoryId == null || t.ignoreInBudget) continue;
-    const key = normalizeDesc(t.descriptor);
-    if (!key) continue;
-    if (!_descFreq.has(key)) _descFreq.set(key, new Map());
-    const dm = _descFreq.get(key)!;
-    dm.set(t.categoryId, (dm.get(t.categoryId) ?? 0) + 1);
-    for (const w of key.split(' ').filter((w) => w.length >= 4)) {
-      if (!_wordFreq.has(w)) _wordFreq.set(w, new Map());
-      const wm = _wordFreq.get(w)!;
-      wm.set(t.categoryId, (wm.get(t.categoryId) ?? 0) + 1);
-    }
-  }
+  // History-based suggestions using the 4-tier point system (exact → stripped IDs → fuzzy → keywords).
   const historyMap = new Map<number, CategorySuggestion>();
+  const historyScoresMap = new Map<number, Map<number, number>>();
   for (const t of allTransactions) {
     if (t.categoryId != null || t.ignoreInBudget) continue;
-    const key = normalizeDesc(t.descriptor);
-    // 1. Exact normalized match
-    const freq = _descFreq.get(key);
-    if (freq && freq.size > 0) {
-      const bestCatId = [...freq.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      const cat = categories.find((c) => c.id === bestCatId);
-      if (cat) { historyMap.set(t.id, { txnId: t.id, categoryId: bestCatId, categoryName: cat.name }); continue; }
-    }
-    // 2. Word-level fallback
-    const combined = new Map<number, number>();
-    for (const w of key.split(' ').filter((w) => w.length >= 4)) {
-      const wf = _wordFreq.get(w);
-      if (!wf) continue;
-      for (const [catId, cnt] of wf) combined.set(catId, (combined.get(catId) ?? 0) + cnt);
-    }
-    if (combined.size > 0) {
-      const bestCatId = [...combined.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      const cat = categories.find((c) => c.id === bestCatId);
-      if (cat) historyMap.set(t.id, { txnId: t.id, categoryId: bestCatId, categoryName: cat.name });
-    }
+    const scores = getGuessScores(t.descriptor, allTransactions);
+    if (scores.size === 0) continue;
+    historyScoresMap.set(t.id, scores);
+    const catId = [...scores.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const cat = categories.find((c) => c.id === catId);
+    if (cat) historyMap.set(t.id, { txnId: t.id, categoryId: catId, categoryName: cat.name });
   }
   // Merge: history is base, Ollama can override
   const allSuggestions = new Map(historyMap);
@@ -166,6 +144,19 @@ export function TransactionView({ search = '' }: { search?: string }) {
 
   const [catFilter, setCatFilter] = useState<'all' | 'categorized' | 'uncategorized'>('all');
   const [categoryFilter, setCategoryFilter] = useState<number | ''>('');
+  const [instrumentFilter, setInstrumentFilter] = useState<string>('');
+  const navFilterApplied = useRef(false);
+
+  // Apply nav filter from external navigation (e.g. clicking "Spent" in Budget view)
+  useEffect(() => {
+    if (navFilter && !navFilterApplied.current) {
+      navFilterApplied.current = true;
+      if (navFilter.month) setMonthFilter(navFilter.month);
+      if (navFilter.categoryId != null) setCategoryFilter(navFilter.categoryId);
+      onNavConsumed?.();
+    }
+    if (!navFilter) navFilterApplied.current = false;
+  }, [navFilter, onNavConsumed]);
 
   const splitsMap = new Map<number, TransactionSplit[]>();
   for (const s of allSplits) {
@@ -195,6 +186,7 @@ export function TransactionView({ search = '' }: { search?: string }) {
     if (splits && splits.length > 0) return splits.some((s) => s.categoryId === categoryFilter);
     return t.categoryId === categoryFilter;
   });
+  if (instrumentFilter !== '') txns = txns.filter((t) => t.instrument === instrumentFilter);
   if (search.trim()) {
     const q = search.trim().toLowerCase();
     txns = txns.filter((t) => {
@@ -225,20 +217,50 @@ export function TransactionView({ search = '' }: { search?: string }) {
     setRuleCatId(txn.categoryId ?? '');
     setRuleAmount(txn.amount ? String(txn.amount) : '');
     setRuleAmountRequired(false);
+    setRuleIsSplit(false);
+    setRuleSplitType('%');
+    setRuleSplits([
+      { categoryId: '', amount: '' },
+      { categoryId: '', amount: '' },
+    ]);
   }
 
   async function createRule() {
-    if (!rulePattern || !ruleCatId) return;
-    const amountVal = ruleAmountRequired && ruleAmount.trim() ? parseFloat(ruleAmount) : null;
-    await addCategoryRule({
-      matchType: ruleType,
-      pattern: rulePattern.toLowerCase(),
-      categoryId: ruleCatId as number,
-      amountMatch: amountVal,
-    });
-    const count = await bulkCategorizeByDescriptor(rulePattern, ruleCatId as number, ruleType, amountVal ?? undefined);
-    setRuleModal(null);
-    alert(`Rule created. ${count} transactions categorized.`);
+    if (!rulePattern) return;
+    const hasDollarSplit = ruleIsSplit && ruleSplitType === '$';
+    const amountVal = (ruleAmountRequired || hasDollarSplit) && ruleAmount.trim() ? parseFloat(ruleAmount) : null;
+
+    if (ruleIsSplit) {
+      const validSplits = ruleSplits.filter((s) => s.categoryId !== '' && s.amount.trim() !== '');
+      if (validSplits.length < 2) return;
+      if (hasDollarSplit && !amountVal) return; // $ splits require amount
+      const primaryCatId = validSplits[0].categoryId as number;
+      const splitItems = validSplits.map((s) => ({
+        categoryId: s.categoryId as number,
+        ...(ruleSplitType === '%' ? { percent: parseFloat(s.amount) } : { amount: parseFloat(s.amount) }),
+      }));
+      await addCategoryRule({
+        matchType: ruleType,
+        pattern: rulePattern.toLowerCase(),
+        categoryId: primaryCatId,
+        amountMatch: amountVal,
+        splits: splitItems,
+      });
+      const count = await bulkApplySplitRule(rulePattern, ruleType, amountVal, splitItems);
+      setRuleModal(null);
+      alert(`Split rule created. ${count} transaction${count !== 1 ? 's' : ''} split.`);
+    } else {
+      if (!ruleCatId) return;
+      await addCategoryRule({
+        matchType: ruleType,
+        pattern: rulePattern.toLowerCase(),
+        categoryId: ruleCatId as number,
+        amountMatch: amountVal,
+      });
+      const count = await bulkCategorizeByDescriptor(rulePattern, ruleCatId as number, ruleType, amountVal ?? undefined);
+      setRuleModal(null);
+      alert(`Rule created. ${count} transactions categorized.`);
+    }
   }
 
   function startEditComment(txn: Transaction) {
@@ -383,6 +405,13 @@ export function TransactionView({ search = '' }: { search?: string }) {
           placeholder="All categories"
           style={{ minWidth: 160 }}
         />
+        <SearchableSelect
+          options={[...new Set(allTransactions.map((t) => t.instrument).filter(Boolean))].sort().map((i) => ({ value: i, label: i }))}
+          value={instrumentFilter}
+          onChange={(v) => setInstrumentFilter(String(v))}
+          placeholder="All instruments"
+          style={{ minWidth: 160 }}
+        />
         <span style={{ fontSize: '0.9rem', opacity: 0.6 }}>{txns.length} transactions</span>
         <button
           className="btn btn-primary btn-sm"
@@ -485,7 +514,7 @@ export function TransactionView({ search = '' }: { search?: string }) {
                     {t.linkedTransactionId && t.linkedTransactionId !== -1 && <span className="chip" style={{ marginLeft: '4px' }}>linked</span>}
                   </td>
                   <td>{t.instrument}</td>
-                  <td className={`num budget-num ${t.ignoreInBudget || t.amount < 0 ? 'positive' : ''}`}>
+                  <td className={`num budget-num ${t.ignoreInBudget || t.amount < 0 ? 'positive' : 'txn-neg'}`}>
                     {t.amount === 0 ? '' : t.ignoreInBudget || t.amount < 0 ? '+' : '-'}${formatAmount(Math.abs(t.amount))}
                   </td>
                   <td>
@@ -523,10 +552,26 @@ export function TransactionView({ search = '' }: { search?: string }) {
                             style={{ fontSize: '0.85rem', minWidth: 120 }}
                           />
                         )}
-                        {/* AI suggestion chip — to the RIGHT, faded, with 🦙? prefix */}
+                        {/* Suggestion chip — history or AI */}
                         {t.categoryId == null && allSuggestions.has(t.id) && (() => {
                           const s = allSuggestions.get(t.id)!;
+                          const isAI = ollamaSuggestions.has(t.id);
                           const baseColor = catColorMap.get(s.categoryId) ?? '#888';
+                          // Build score breakdown tooltip for history suggestions
+                          let tooltipText = isAI ? 'AI suggestion — click to accept' : 'History match — click to accept';
+                          if (!isAI) {
+                            const scores = historyScoresMap.get(t.id);
+                            if (scores && scores.size > 0) {
+                              const lines = [...scores.entries()]
+                                .sort((a, b) => b[1] - a[1])
+                                .slice(0, 6)
+                                .map(([catId, pts]) => {
+                                  const name = categories.find((c) => c.id === catId)?.name ?? catId;
+                                  return `${name}: ${pts} pts`;
+                                });
+                              tooltipText += '\n' + lines.join('\n');
+                            }
+                          }
                           return (
                             <span
                               className="chip"
@@ -539,7 +584,7 @@ export function TransactionView({ search = '' }: { search?: string }) {
                                 fontSize: '0.78rem',
                                 fontWeight: 500,
                               }}
-                              title="AI suggestion — click to accept"
+                              title={tooltipText}
                               onClick={() => {
                                 assignCategory(t.id, s.categoryId);
                                 logAICategoryFeedback(t.descriptor, s.categoryId, 'accepted', s.categoryId);
@@ -547,25 +592,24 @@ export function TransactionView({ search = '' }: { search?: string }) {
                                 setOllamaSuggestions((prev) => { const m = new Map(prev); m.delete(t.id); return m; });
                               }}
                             >
-                              🦙? {s.categoryName}
+                              {isAI ? '🦙? ' : '~'}{s.categoryName}
                             </span>
                           );
                         })()}
                       </div>
                     )}
                   </td>
-                  <td>
+                  <td className="txn-action-cell">
                     <button className="btn btn-ghost btn-sm" onClick={() => openRuleModal(t)} title="Create rule">
                       Create Rule
                     </button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setSplitTxn(t)} title="Split transaction" style={{ marginLeft: '2px' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setSplitTxn(t)} title="Split transaction">
                       Split Txn
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
                       onClick={() => openMoveMonth(t)}
                       title="Count in different month"
-                      style={{ marginLeft: '2px' }}
                     >
                       📅
                     </button>
@@ -573,17 +617,17 @@ export function TransactionView({ search = '' }: { search?: string }) {
                       className={`btn btn-sm ${t.comment ? 'btn-warning' : 'btn-ghost'}`}
                       onClick={() => startEditComment(t)}
                       title={t.comment ? 'View/edit comment' : 'Add comment'}
-                      style={{ marginLeft: '2px', fontWeight: t.comment ? 'bold' : 'normal' }}
+                      style={{ fontWeight: t.comment ? 'bold' : 'normal' }}
                     >
                       💬
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
-                      onClick={() => setLookupTxn(t)}
-                      title="Identify this transaction with AI - WARNING: This will perform an internet search on the transaction descriptor"
-                      style={{ marginLeft: '2px', fontWeight: 600, opacity: 0.7 }}
+                      onClick={() => setConfirmDeleteId(t.id)}
+                      title="Delete transaction"
+                      style={{ color: 'var(--red)', fontWeight: 600 }}
                     >
-                      ?
+                      🗑
                     </button>
                   </td>
                 </tr>
@@ -597,9 +641,11 @@ export function TransactionView({ search = '' }: { search?: string }) {
         </table>
       </div>
 
-      {ruleModal && (
+      {ruleModal && (() => {
+        const hasDollarSplit = ruleIsSplit && ruleSplitType === '$';
+        return (
         <div className="modal-overlay" onClick={() => setRuleModal(null)}>
-          <div className="modal modal--rule" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal--rule" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
             <h3>Create Category Rule</h3>
             <div className="field">
               <label>Pattern</label>
@@ -618,30 +664,109 @@ export function TransactionView({ search = '' }: { search?: string }) {
                   placeholder="Match type"
                 />
               </div>
-              <div className="field">
-                <label>Category</label>
-                <SearchableSelect
-                  options={categories.map((c) => ({ value: c.id, label: c.name }))}
-                  value={ruleCatId}
-                  onChange={(v) => setRuleCatId(v === '' ? '' : Number(v))}
-                  placeholder="Select..."
-                />
-              </div>
-            </div>
-            <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
-              <input type="checkbox" id="rule-amt-cb" checked={ruleAmountRequired} onChange={(e) => { setRuleAmountRequired(e.target.checked); if (!e.target.checked) setRuleAmount(''); }} />
-              <label htmlFor="rule-amt-cb" style={{ marginBottom: 0 }}>Require amount</label>
-              {ruleAmountRequired && (
-                <input type="number" step="0.01" value={ruleAmount} onChange={(e) => setRuleAmount(e.target.value)} placeholder="0" style={{ width: '100px' }} />
+              {!ruleIsSplit && (
+                <div className="field">
+                  <label>Category</label>
+                  <SearchableSelect
+                    options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                    value={ruleCatId}
+                    onChange={(v) => setRuleCatId(v === '' ? '' : Number(v))}
+                    placeholder="Select..."
+                  />
+                </div>
               )}
             </div>
+
+            {/* Split toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem' }}>
+              <input
+                type="checkbox"
+                id="rule-split-cb"
+                checked={ruleIsSplit}
+                onChange={(e) => setRuleIsSplit(e.target.checked)}
+              />
+              <label htmlFor="rule-split-cb" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                Split transaction into multiple categories
+              </label>
+            </div>
+
+            {ruleIsSplit && (
+              <div style={{ background: 'var(--bg-3)', borderRadius: 'var(--radius)', padding: '0.65rem', marginBottom: '0.65rem' }}>
+                <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginRight: '0.25rem' }}>Split by:</span>
+                  <button className={`btn btn-sm ${ruleSplitType === '%' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setRuleSplitType('%')}>%</button>
+                  <button className={`btn btn-sm ${ruleSplitType === '$' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setRuleSplitType('$')}>$</button>
+                  {hasDollarSplit && <span style={{ fontSize: '0.72rem', color: 'var(--yellow)', marginLeft: '0.5rem' }}>requires amount condition</span>}
+                </div>
+                {ruleSplits.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '2 1 130px' }}>
+                      <SearchableSelect
+                        options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                        value={s.categoryId}
+                        onChange={(v) => setRuleSplits((prev) => prev.map((x, j) => j === i ? { ...x, categoryId: v === '' ? '' : Number(v) } : x))}
+                        placeholder="Category"
+                      />
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={ruleSplitType === '%' ? '50' : '0.00'}
+                      value={s.amount}
+                      onChange={(e) => setRuleSplits((prev) => prev.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))}
+                      style={{ width: 80 }}
+                    />
+                    {ruleSplits.length > 2 && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => setRuleSplits((prev) => prev.filter((_, j) => j !== i))}>×</button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setRuleSplits((prev) => [...prev, { categoryId: '', amount: '' }])}>+ Add row</button>
+                  {ruleSplitType === '%' && (() => {
+                    const pct = ruleSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+                    const ok = Math.abs(pct - 100) < 0.01;
+                    return <span style={{ fontSize: '0.75rem', color: ok ? 'var(--green)' : 'var(--red)' }}>Total: {pct.toFixed(1)}%</span>;
+                  })()}
+                  {ruleSplitType === '$' && ruleModal && (() => {
+                    const total = ruleSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+                    const txnAmt = Math.abs(ruleModal.amount);
+                    const ok = Math.abs(total - txnAmt) < 0.01;
+                    return <span style={{ fontSize: '0.75rem', color: ok ? 'var(--green)' : 'var(--red)' }}>
+                      Total: ${total.toFixed(2)} / ${txnAmt.toFixed(2)}
+                    </span>;
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Amount condition */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem' }}>
+              <input
+                type="checkbox"
+                id="rule-amt-cb"
+                checked={ruleAmountRequired || hasDollarSplit}
+                disabled={hasDollarSplit}
+                onChange={(e) => { setRuleAmountRequired(e.target.checked); if (!e.target.checked) setRuleAmount(''); }}
+              />
+              <label htmlFor="rule-amt-cb" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+                {hasDollarSplit ? 'Amount (required for $ splits)' : 'Require amount'}
+              </label>
+              {(ruleAmountRequired || hasDollarSplit) && (
+                <input type="number" step="0.01" value={ruleAmount} onChange={(e) => setRuleAmount(e.target.value)} placeholder="0.00" style={{ width: '100px' }} />
+              )}
+            </div>
+
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setRuleModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={createRule}>Create &amp; Apply</button>
+              <button className="btn btn-primary" onClick={createRule}>
+                {ruleIsSplit ? 'Create Split Rule' : 'Create & Apply'}
+              </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {editingCommentId !== null && (
         <div className="modal-overlay" onClick={() => setEditingCommentId(null)}>
@@ -797,11 +922,18 @@ export function TransactionView({ search = '' }: { search?: string }) {
         document.body,
       )}
 
-      {lookupTxn && (
-        <TransactionLookup
-          transaction={lookupTxn}
-          onClose={() => setLookupTxn(null)}
-        />
+      {confirmDeleteId !== null && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ maxWidth: 360, width: '90%', textAlign: 'center' }}>
+            <p style={{ marginBottom: '1rem', fontWeight: 600 }}>Delete this transaction?</p>
+            <p style={{ marginBottom: '1.25rem', fontSize: '0.85rem', opacity: 0.7 }}>This cannot be undone.</p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+              <button className="btn btn-danger" onClick={async () => { await deleteTransactions([confirmDeleteId]); setConfirmDeleteId(null); }}>Delete</button>
+              <button className="btn btn-ghost" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -10,12 +10,18 @@ import { AIPanel } from './components/AIPanel';
 import { ExperimentalBudgetsView } from './components/ExperimentalBudgetsView';
 import { processRecurringTemplates } from './logic/recurring';
 import { processSchedules } from './logic/savings';
-import { startupCleanup, getAISettings, undo, canUndo, subscribeUndo } from './db';
+import { startupCleanup, getAISettings, getData, undo, canUndo, subscribeUndo, type AppData } from './db';
 import { checkOllama } from './logic/llm';
 import { invoke } from '@tauri-apps/api/core';
 import './App.css';
 
 type Tab = 'budget' | 'transactions' | 'year' | 'savings' | 'import' | 'experimental' | 'settings';
+
+export interface NavFilter {
+  month?: string;
+  categoryId?: number;
+  scope?: 'overall' | 'categories';
+}
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'budget', label: 'Budget' },
@@ -27,15 +33,67 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 const ZOOM_KEY = 'budget-app-zoom';
+const DARK_KEY = 'budget-app-dark';
+const BACKUP_ENABLED_KEY = 'budget-app-backup-enabled';
+const BACKUP_COUNT_KEY = 'budget-app-backup-count';
+const BACKUP_DIR_KEY = 'budget-app-backup-dir';
+
+async function runStartupBackup(getDataFn: () => AppData) {
+  try {
+    const enabled = localStorage.getItem(BACKUP_ENABLED_KEY) === 'true';
+    if (!enabled) return;
+    const dir = localStorage.getItem(BACKUP_DIR_KEY);
+    if (!dir) return;
+    const maxCount = parseInt(localStorage.getItem(BACKUP_COUNT_KEY) ?? '3', 10);
+
+    // Get unencrypted JSON of current data
+    const data = getDataFn();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const json = JSON.stringify({ ...data, _backupCreatedAt: new Date().toISOString() }, null, 2);
+
+    // List existing backup files
+    type FileInfo = { path: string; modified_secs: number };
+    const existing: FileInfo[] = await invoke('list_dir_files', { dir, ext: '.json' });
+    const backupFiles = existing
+      .filter((f) => f.path.split('/').pop()?.startsWith('qbdgt-backup-') || f.path.split('\\').pop()?.startsWith('qbdgt-backup-'))
+      .sort((a, b) => a.modified_secs - b.modified_secs);
+
+    let savePath: string;
+    const sep = dir.includes('\\') ? '\\' : '/';
+    if (backupFiles.length >= maxCount && backupFiles.length > 0) {
+      // Overwrite oldest
+      savePath = backupFiles[0].path;
+    } else {
+      savePath = `${dir}${sep}qbdgt-backup-${timestamp}.json`;
+    }
+
+    await invoke('save_data', { path: savePath, data: json });
+  } catch {
+    // Backup failure is non-fatal
+  }
+}
+
+function applyDarkMode(dark: boolean) {
+  if (dark) {
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
+  } else {
+    document.documentElement.classList.remove('dark');
+    document.documentElement.classList.add('light');
+  }
+}
 
 function App() {
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<Tab>('budget');
+  const [tabHistory, setTabHistory] = useState<Tab[]>([]);
   const [zoom, setZoom] = useState(() => {
     const stored = localStorage.getItem(ZOOM_KEY);
     const val = stored ? parseFloat(stored) : 1;
-    // Clamp to new valid range (0.5–1.5); reset if outside (e.g. old stored 1.5 from pre-resize era)
     return Number.isFinite(val) && val >= 0.5 && val <= 1.5 ? val : 1;
+  });
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem(DARK_KEY) === 'true';
   });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,16 +102,31 @@ function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const undoAvailable = useSyncExternalStore(subscribeUndo, canUndo, canUndo);
 
+  // Nav filters for cross-tab navigation
+  const [transactionNavFilter, setTransactionNavFilter] = useState<NavFilter | null>(null);
+  const [yearNavFilter, setYearNavFilter] = useState<NavFilter | null>(null);
+
   useEffect(() => {
     localStorage.setItem(ZOOM_KEY, String(zoom));
   }, [zoom]);
+
+  useEffect(() => {
+    localStorage.setItem(DARK_KEY, String(darkMode));
+    applyDarkMode(darkMode);
+  }, [darkMode]);
+
+  // Apply dark mode on initial load
+  useEffect(() => {
+    applyDarkMode(darkMode);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (ready) {
       startupCleanup();
       processRecurringTemplates();
       processSchedules();
-      // Check if Ollama is configured but not running → prompt to start
+      runStartupBackup(getData);
       const ai = getAISettings();
       if (ai.model) {
         checkOllama(ai.ollamaUrl).then((running) => {
@@ -91,9 +164,38 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [handleKeyDown]);
 
+  function navigateTo(newTab: Tab, filter?: NavFilter) {
+    setTabHistory((h) => [...h, tab]);
+    setTab(newTab);
+    if (newTab === 'transactions' && filter) setTransactionNavFilter(filter);
+    if (newTab === 'year' && filter) setYearNavFilter(filter);
+  }
+
+  const [customBackHandler, setCustomBackHandler] = useState<(() => void) | null>(null);
+
+  function navigateBack() {
+    if (customBackHandler) {
+      customBackHandler();
+      setCustomBackHandler(null);
+      return;
+    }
+    const prev = tabHistory[tabHistory.length - 1];
+    if (prev == null) return;
+    setTabHistory((h) => h.slice(0, -1));
+    setTab(prev);
+  }
+
+  function changeTab(newTab: Tab) {
+    setTabHistory([]);
+    setTab(newTab);
+    setCustomBackHandler(null);
+  }
+
   if (!ready) {
     return <FileSetup onReady={() => setReady(true)} />;
   }
+
+  const canGoBack = tabHistory.length > 0 || customBackHandler != null;
 
   return (
     <div className="app" style={{ zoom }}>
@@ -120,41 +222,60 @@ function App() {
         </div>
       )}
       <nav className="tab-bar">
-        {TABS.map((t) => (
+        {/* Left: Back */}
+        <div className="tab-bar-left">
           <button
-            key={t.key}
-            className={`tab-btn ${tab === t.key ? 'active' : ''}`}
-            onClick={() => setTab(t.key)}
+            className="ai-toggle-btn"
+            onClick={navigateBack}
+            title="Go back"
+            disabled={!canGoBack}
+            style={{ opacity: canGoBack ? 1 : 0.35 }}
           >
-            {t.label}
+            ← Back
           </button>
-        ))}
-        <button
-          className={`ai-toggle-btn ${aiOpen ? 'active' : ''}`}
-          onClick={() => setAiOpen((o) => !o)}
-          title={aiOpen ? 'Close AI assistant' : 'Open AI assistant'}
-          style={{ marginLeft: 'auto', flexShrink: 0 }}
-        >
-          <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>🦙</span> AI Assistant
-        </button>
-        <button
-          className="ai-toggle-btn"
-          onClick={() => undo()}
-          disabled={!undoAvailable}
-          title="Undo last action (Ctrl+Z)"
-          style={{ flexShrink: 0, opacity: undoAvailable ? 1 : 0.35 }}
-        >
-          ↩ Undo
-        </button>
-        <button
-          className={`ai-toggle-btn ${tab === 'settings' ? 'active' : ''}`}
-          onClick={() => setTab(tab === 'settings' ? 'budget' : 'settings')}
-          title="Settings"
-          style={{ flexShrink: 0, fontSize: '1.2rem', padding: '0.35rem 0.6rem' }}
-        >
-          ⚙
-        </button>
-        <span className="app-version">v1.2</span>
+        </div>
+
+        {/* Center: Tabs */}
+        <div className="tab-bar-center">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              className={`tab-btn ${tab === t.key ? 'active' : ''}`}
+              onClick={() => changeTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Right: Undo + Settings + AI + version */}
+        <div className="tab-bar-right">
+          <button
+            className="ai-toggle-btn"
+            onClick={() => undo()}
+            disabled={!undoAvailable}
+            title="Undo last action (Ctrl+Z)"
+            style={{ opacity: undoAvailable ? 1 : 0.35 }}
+          >
+            ↩ Undo
+          </button>
+          <button
+            className={`ai-toggle-btn ${tab === 'settings' ? 'active' : ''}`}
+            onClick={() => changeTab(tab === 'settings' ? 'budget' : 'settings')}
+            title="Settings"
+            style={{ fontSize: '1.2rem', padding: '0.35rem 0.6rem' }}
+          >
+            ⚙
+          </button>
+          <button
+            className={`ai-toggle-btn ${aiOpen ? 'active' : ''}`}
+            onClick={() => setAiOpen((o) => !o)}
+            title={aiOpen ? 'Close AI assistant' : 'Open AI assistant'}
+          >
+            <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>🦙</span>
+          </button>
+          <span className="app-version">v1.2</span>
+        </div>
       </nav>
       {searchOpen && (
         <div className="search-bar">
@@ -175,13 +296,40 @@ function App() {
         </div>
       )}
       <main className="main-content">
-        {tab === 'budget' && <BudgetView search={searchTerm} />}
-        {tab === 'transactions' && <TransactionView search={searchTerm} />}
-        {tab === 'year' && <YearView />}
+        {tab === 'budget' && (
+          <BudgetView
+            search={searchTerm}
+            onNavigateToTransactions={(month, categoryId) => navigateTo('transactions', { month, categoryId })}
+            onNavigateToYear={(categoryId) => navigateTo('year', { categoryId, scope: 'categories' })}
+          />
+        )}
+        {tab === 'transactions' && (
+          <TransactionView
+            search={searchTerm}
+            navFilter={transactionNavFilter}
+            onNavConsumed={() => setTransactionNavFilter(null)}
+          />
+        )}
+        {tab === 'year' && (
+          <YearView
+            navFilter={yearNavFilter}
+            onNavConsumed={() => setYearNavFilter(null)}
+            darkMode={darkMode}
+          />
+        )}
         {tab === 'savings' && <SavingsView />}
         {tab === 'import' && <ImportView />}
         {tab === 'experimental' && <ExperimentalBudgetsView />}
-        {tab === 'settings' && <SettingsView zoom={zoom} onZoomChange={setZoom} search={searchTerm} />}
+        {tab === 'settings' && (
+          <SettingsView
+            zoom={zoom}
+            onZoomChange={setZoom}
+            search={searchTerm}
+            darkMode={darkMode}
+            onDarkModeChange={setDarkMode}
+            onRegisterBack={(handler) => setCustomBackHandler(handler ? () => handler : null)}
+          />
+        )}
       </main>
       {aiOpen && <AIPanel onClose={() => setAiOpen(false)} />}
     </div>

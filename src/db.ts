@@ -8,6 +8,7 @@ export interface Category {
   isIncome?: boolean; // if true, shown in Income section and excluded from expense remaining calc
   color?: string;     // hex color for UI chips
   note?: string;      // optional hover tooltip shown in budget view
+  savingsBucketId?: number | null; // if set, transactions categorized here fill this savings bucket
 }
 
 // Palette: 30 visually distinct colors via golden-angle hue spread
@@ -36,9 +37,20 @@ export async function updateCategoryNote(id: number, note: string): Promise<void
   if (cat) { cat.note = note || undefined; await persist(); }
 }
 
+export async function updateCategoryBucket(id: number, bucketId: number | null): Promise<void> {
+  const cat = data.categories.find((c) => c.id === id);
+  if (cat) { cat.savingsBucketId = bucketId ?? undefined; await persist(); }
+}
+
 export async function updateCategoryIsIncome(id: number, isIncome: boolean): Promise<void> {
   const cat = data.categories.find((c) => c.id === id);
   if (cat) { cat.isIncome = isIncome || undefined; await persist(); }
+}
+
+export interface SplitRuleItem {
+  categoryId: number;
+  amount?: number;   // fixed $ amount
+  percent?: number;  // percentage 0-100 (takes precedence if set)
 }
 
 export interface CategoryRule {
@@ -47,6 +59,7 @@ export interface CategoryRule {
   pattern: string;
   categoryId: number;
   amountMatch?: number | null; // optional: rule only applies if txn amount equals this (within 0.01)
+  splits?: SplitRuleItem[];    // if set, transaction is split into these categories instead
 }
 
 export interface BudgetGroup {
@@ -193,6 +206,7 @@ export interface AppData {
   customParsers?: CustomParser[];
   aiCategoryFeedback?: AICategoryFeedback[];
   experimentalBudgets?: ExperimentalBudget[];
+  completedMigrations?: string[];
 }
 
 function emptyData(): AppData {
@@ -481,7 +495,74 @@ export async function startupCleanup(): Promise<number> {
     }
   }
 
-  // 9. Backfill category colors for categories that don't have one yet
+
+  // 10. One-time: delete Recurring-instrument transactions except kept categories
+  if (!data.completedMigrations) data.completedMigrations = [];
+  if (!data.completedMigrations.includes('purgeRecurringInstrumentTxns')) {
+    const keepNames = new Set(['Spotify Kathy', 'James RRSP Savings Transfer', 'James RRSP Employer Contributions']);
+    const keepCatIds = new Set(data.categories.filter((c) => keepNames.has(c.name)).map((c) => c.id));
+    const before = data.transactions.length;
+    data.transactions = data.transactions.filter(
+      (t) => t.instrument !== 'Recurring' || (t.categoryId != null && keepCatIds.has(t.categoryId))
+    );
+    data.transactionSplits = data.transactionSplits.filter(
+      (s) => data.transactions.some((t) => t.id === s.transactionId)
+    );
+    fixed += before - data.transactions.length;
+    data.completedMigrations.push('purgeRecurringInstrumentTxns');
+  }
+
+  // 10a. One-time: delete all savings schedules
+  if (!data.completedMigrations) data.completedMigrations = [];
+  if (!data.completedMigrations.includes('deleteAllSavingsSchedules')) {
+    data.savingsSchedules = [];
+    data.completedMigrations.push('deleteAllSavingsSchedules');
+    fixed++;
+  }
+
+  // 10b. One-time: delete recurring templates and their transactions, keeping 3 categories
+  if (!data.completedMigrations.includes('purgeRecurringTemplates')) {
+    const keepNames = new Set(['Spotify Kathy', 'James RRSP Savings Transfer', 'James RRSP Employer Contributions']);
+    const keepCatIds = new Set(data.categories.filter((c) => keepNames.has(c.name)).map((c) => c.id));
+    // Delete templates not in kept categories
+    data.recurringTemplates = data.recurringTemplates.filter(
+      (t) => t.categoryId != null && keepCatIds.has(t.categoryId)
+    );
+    // Delete all Recurring-instrument transactions not in kept categories
+    const beforeT = data.transactions.length;
+    data.transactions = data.transactions.filter(
+      (t) => t.instrument !== 'Recurring' || (t.categoryId != null && keepCatIds.has(t.categoryId))
+    );
+    data.transactionSplits = data.transactionSplits.filter(
+      (s) => data.transactions.some((t) => t.id === s.transactionId)
+    );
+    fixed += beforeT - data.transactions.length;
+    data.completedMigrations.push('purgeRecurringTemplates');
+  }
+
+  // 11. One-time: apply all existing split rules to matching transactions
+  if (!data.completedMigrations.includes('applySplitRules')) {
+    const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+    for (const rule of data.categoryRules) {
+      if (!rule.splits || rule.splits.length < 2) continue;
+      const ruleNorm = norm(rule.pattern);
+      for (const txn of data.transactions) {
+        const txnNorm = norm(txn.descriptor);
+        const descMatch = rule.matchType === 'exact' ? txnNorm === ruleNorm : txnNorm.includes(ruleNorm);
+        const amountOk = rule.amountMatch == null || Math.abs(rule.amountMatch - txn.amount) < 0.01;
+        if (!descMatch || !amountOk) continue;
+        data.transactionSplits = data.transactionSplits.filter((s) => s.transactionId !== txn.id);
+        for (const s of rule.splits) {
+          const amt = s.percent != null ? txn.amount * s.percent / 100 : (s.amount ?? 0);
+          data.transactionSplits.push({ id: nextId(), transactionId: txn.id, categoryId: s.categoryId, amount: amt });
+        }
+        fixed++;
+      }
+    }
+    data.completedMigrations.push('applySplitRules');
+  }
+
+  // 12. Backfill category colors for categories that don't have one yet
   let colorized = 0;
   for (let i = 0; i < data.categories.length; i++) {
     if (!data.categories[i].color) {
@@ -515,6 +596,11 @@ export async function addCategoryRule(rule: Omit<CategoryRule, 'id'>): Promise<n
   data.categoryRules.push({ id, ...rule });
   await persist();
   return id;
+}
+
+export async function updateCategoryRule(id: number, updates: Partial<Omit<CategoryRule, 'id'>>): Promise<void> {
+  const r = data.categoryRules.find((r) => r.id === id);
+  if (r) { Object.assign(r, updates); await persist(); }
 }
 
 export async function deleteCategoryRule(id: number): Promise<void> {
@@ -715,6 +801,15 @@ export async function deleteSavingsEntry(id: number): Promise<void> {
   await persist();
 }
 
+/** Remove all auto-generated schedule entries. Use this when switching to transaction-based contributions. */
+export async function clearAutoScheduleEntries(): Promise<number> {
+  const before = data.savingsEntries.length;
+  data.savingsEntries = data.savingsEntries.filter((e) => e.source !== 'auto_schedule');
+  const removed = before - data.savingsEntries.length;
+  if (removed > 0) await persist();
+  return removed;
+}
+
 export async function addSavingsSchedule(sched: Omit<SavingsSchedule, 'id'>): Promise<void> {
   data.savingsSchedules.push({ id: nextId(), ...sched });
   await persist();
@@ -724,6 +819,18 @@ export async function updateSavingsSchedule(id: number, updates: Partial<Savings
   const s = data.savingsSchedules.find((x) => x.id === id);
   if (s) Object.assign(s, updates);
   await persist();
+}
+
+export async function deleteSavingsSchedule(id: number): Promise<void> {
+  data.savingsSchedules = data.savingsSchedules.filter((s) => s.id !== id);
+  await persist();
+}
+
+export async function deleteAllSavingsSchedules(): Promise<number> {
+  const count = data.savingsSchedules.length;
+  data.savingsSchedules = [];
+  if (count > 0) await persist();
+  return count;
 }
 
 // --- Recurring Templates ---

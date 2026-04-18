@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useState, useMemo, useRef, useSyncExternalStore, useEffect } from 'react';
 import { getData, subscribe } from '../db';
 import { INCOME_CATEGORY_NAMES } from '../seed';
 import {
@@ -7,6 +7,7 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  Filler,
   Title,
   Tooltip,
   Legend,
@@ -14,7 +15,7 @@ import {
 import { Line } from 'react-chartjs-2';
 import { formatAmount } from '../utils/format';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
 
 function monthsOfYear(year: number): string[] {
   return Array.from({ length: 12 }, (_, i) =>
@@ -30,13 +31,46 @@ interface MonthData {
   savings: number; // Occasional group spending
 }
 
-export function YearView() {
+interface YearNavFilter {
+  categoryId?: number;
+  scope?: 'overall' | 'categories';
+}
+
+interface YearViewProps {
+  navFilter?: YearNavFilter | null;
+  onNavConsumed?: () => void;
+  darkMode?: boolean;
+}
+
+export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearViewProps) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [selectedCats, setSelectedCats] = useState<number[]>([]);
   const [scope, setScope] = useState<'overall' | 'categories'>('overall');
   const chartRef = useRef(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
   const appData = useSyncExternalStore(subscribe, getData);
   const categories = appData.categories;
+  const navFilterApplied = useRef(false);
+
+  // Apply nav filter from external navigation (e.g. clicking chart icon in Budget view)
+  useEffect(() => {
+    if (navFilter && !navFilterApplied.current) {
+      navFilterApplied.current = true;
+      if (navFilter.scope) setScope(navFilter.scope);
+      if (navFilter.categoryId != null) setSelectedCats([navFilter.categoryId]);
+      onNavConsumed?.();
+      // Scroll to line chart after React re-renders with new category selection
+      setTimeout(() => {
+        const el = chartContainerRef.current;
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const scrollTop = window.scrollY + rect.top - 70;
+          window.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' });
+        }
+      }, 500);
+    }
+    if (!navFilter) navFilterApplied.current = false;
+  }, [navFilter, onNavConsumed]);
 
   const data: MonthData[] = useMemo(() => {
     const { budgets: allBudgets, transactions: allTxns, transactionSplits: allSplits } = appData;
@@ -125,45 +159,117 @@ export function YearView() {
   })();
   const isCompleted = (m: string) => m < todayMonth;
 
+  // Determine if selected cats are savings (occasional) categories
+  const occasionalGroupId2 = appData.budgetGroups?.find((g) => g.name.toLowerCase().includes('occasional'))?.id;
+  const occasionalCatIds2 = new Set(
+    occasionalGroupId2 != null
+      ? appData.budgets.filter((b) => b.groupId === occasionalGroupId2).map((b) => b.categoryId)
+      : [],
+  );
+  const categoryFilterActive = scope === 'categories' && selectedCats.length > 0;
+  const selectedAreSavings = categoryFilterActive && selectedCats.every((id) => occasionalCatIds2.has(id));
+  const selectedIncludeSavings = categoryFilterActive && selectedCats.some((id) => occasionalCatIds2.has(id));
+
+  // Last month with actual data
+  const lastDataIdx = data.reduce((best, d, i) => (isCompleted(d.month) && d.actual > 0 ? i : best), -1);
+
+  // Cap planned: only show through the last month with actual data
+  const cappedPlanned = data.map((d, i) => {
+    if (i > lastDataIdx) return null;
+    return d.planned;
+  });
+
+  // Vertical boundary plugin for Chart.js
+  const verticalBoundaryPlugin = {
+    id: 'verticalBoundary',
+    afterDraw(chart: { ctx: CanvasRenderingContext2D; scales: { x: { getPixelForValue: (v: number) => number }; chartArea: { top: number; bottom: number } }; chartArea: { top: number; bottom: number } }) {
+      if (lastDataIdx < 0) return;
+      const ctx = chart.ctx;
+      const xScale = chart.scales['x'] as { getPixelForValue: (v: number) => number };
+      const chartArea = chart.chartArea;
+      // Draw at the gap between last data month and next
+      const xLeft = xScale.getPixelForValue(lastDataIdx);
+      const xRight = xScale.getPixelForValue(lastDataIdx + 1);
+      const x = (xLeft + xRight) / 2;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(100,100,100,0.35)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+
   const chartData = {
     labels: monthLabels,
-    datasets: [
-      {
-        label: 'Planned',
-        data: data.map((d) => d.planned),
-        borderColor: '#3b82f6',
-        backgroundColor: '#3b82f644',
-        tension: 0.3,
-        borderWidth: 3,
-      },
-      {
-        label: 'Actual',
-        data: data.map((d) => isCompleted(d.month) ? d.actual : null),
-        borderColor: '#ef4444',
-        backgroundColor: '#ef444444',
-        tension: 0.3,
-        spanGaps: false,
-        borderWidth: 3,
-      },
-      {
-        label: 'Spent from Savings',
-        data: data.map((d) => isCompleted(d.month) ? d.savings : null),
-        borderColor: '#d97706',
-        backgroundColor: '#d9770644',
-        tension: 0.3,
-        spanGaps: false,
-        borderWidth: 3,
-      },
-      ...(scope === 'overall' ? [{
-        label: 'Income',
-        data: data.map((d) => isCompleted(d.month) ? d.income : null),
-        borderColor: '#16a34a',
-        backgroundColor: '#16a34a44',
-        tension: 0.3,
-        spanGaps: false,
-        borderWidth: 3,
-      }] : []),
-    ],
+    datasets: selectedAreSavings
+      ? [
+          {
+            label: 'Spent from Savings',
+            data: data.map((d) => isCompleted(d.month) ? d.savings : null),
+            borderColor: '#d97706',
+            backgroundColor: 'rgba(217,119,6,0.15)',
+            tension: 0.35,
+            spanGaps: false,
+            borderWidth: 2.5,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          },
+        ]
+      : [
+          {
+            label: 'Planned',
+            data: cappedPlanned,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.12)',
+            tension: 0.35,
+            borderWidth: 2.5,
+            spanGaps: false,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          },
+          {
+            label: 'Actual',
+            data: data.map((d) => isCompleted(d.month) ? d.actual : null),
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239,68,68,0.12)',
+            tension: 0.35,
+            spanGaps: false,
+            borderWidth: 2.5,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          },
+          ...(!categoryFilterActive || selectedIncludeSavings ? [{
+            label: 'Spent from Savings',
+            data: data.map((d) => isCompleted(d.month) ? d.savings : null),
+            borderColor: '#d97706',
+            backgroundColor: 'rgba(217,119,6,0.12)',
+            tension: 0.35,
+            spanGaps: false,
+            borderWidth: 2.5,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          }] : []),
+          ...(scope === 'overall' ? [{
+            label: 'Income',
+            data: data.map((d) => isCompleted(d.month) ? d.income : null),
+            borderColor: '#16a34a',
+            backgroundColor: 'rgba(22,163,74,0.12)',
+            tension: 0.35,
+            spanGaps: false,
+            borderWidth: 2.5,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          }] : []),
+        ],
   };
 
   function toggleCat(id: number) {
@@ -195,7 +301,7 @@ export function YearView() {
             </tr>
           </thead>
           <tbody>
-            {data.map((d, i) => {
+            {data.filter((d) => d.planned > 0 || d.actual > 0 || d.income > 0 || d.savings > 0 || d.month === todayMonth).map((d, i) => {
               const completed = isCompleted(d.month);
               const v = d.planned - d.actual;
               return (
@@ -244,19 +350,42 @@ export function YearView() {
         </div>
       )}
 
-      <div className="card">
+      <div className="card" ref={chartContainerRef}>
         <div className="chart-container">
           <Line
             ref={chartRef}
             data={chartData}
+            plugins={[verticalBoundaryPlugin as unknown as Parameters<typeof Line>[0]['plugins'] extends (infer P)[] | undefined ? P : never]}
             options={{
               responsive: true,
               maintainAspectRatio: false,
               scales: {
-                y: { beginAtZero: true, ticks: { color: '#555', font: { size: 16 } }, grid: { color: '#e5e7eb' } },
-                x: { ticks: { color: '#555', font: { size: 16 } }, grid: { color: '#e5e7eb' } },
+                y: {
+                  beginAtZero: true,
+                  ticks: { color: darkMode ? '#b0bdd0' : '#555', font: { size: 14 } },
+                  grid: { color: darkMode ? 'rgba(255,255,255,0.08)' : '#e5e7eb' },
+                },
+                x: {
+                  ticks: { color: darkMode ? '#b0bdd0' : '#555', font: { size: 14 } },
+                  grid: { color: darkMode ? 'rgba(255,255,255,0.08)' : '#e5e7eb' },
+                },
               },
-              plugins: { legend: { labels: { color: '#1a2332', font: { size: 16 } } } },
+              plugins: {
+                legend: {
+                  labels: { color: darkMode ? '#e8ecf4' : '#1a2332', font: { size: 14 }, padding: 20 },
+                },
+                tooltip: {
+                  backgroundColor: darkMode ? '#1a1d27' : '#fff',
+                  titleColor: darkMode ? '#e8ecf4' : '#1a2332',
+                  bodyColor: darkMode ? '#b0bdd0' : '#4a5568',
+                  borderColor: darkMode ? '#2e3347' : '#d0d5dd',
+                  borderWidth: 1,
+                  padding: 10,
+                  callbacks: {
+                    label: (ctx) => ` ${ctx.dataset.label}: $${formatAmount(ctx.parsed.y ?? 0, 0)}`,
+                  },
+                },
+              },
             }}
           />
         </div>

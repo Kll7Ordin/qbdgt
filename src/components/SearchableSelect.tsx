@@ -42,12 +42,17 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sele
     if (!isOpen) setFilter('');
   }, [isOpen]);
 
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     function handleClose(e: MouseEvent) {
       if (!containerRef.current?.contains(e.target as Node)) setIsOpen(false);
     }
-    // Also close on scroll so the fixed dropdown doesn't drift
-    function handleScroll() { setIsOpen(false); }
+    // Close on scroll only if the scroll happened outside the dropdown list itself
+    function handleScroll(e: Event) {
+      if (dropdownRef.current?.contains(e.target as Node)) return;
+      setIsOpen(false);
+    }
     document.addEventListener('mousedown', handleClose);
     document.addEventListener('scroll', handleScroll, true);
     return () => {
@@ -95,6 +100,7 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sele
 
       {isOpen && pos && (
         <div
+          ref={dropdownRef}
           style={{
             position: 'fixed',
             top: flipUp ? 'auto' : pos.top + 4,
