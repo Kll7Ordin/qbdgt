@@ -161,7 +161,7 @@ function groupRows(rows: BudgetRow[], groups: BudgetGroup[]): { group: BudgetGro
 
 interface BudgetViewProps {
   search?: string;
-  onNavigateToTransactions?: (month: string, categoryId: number) => void;
+  onNavigateToTransactions?: (month: string, categoryId?: number) => void;
   onNavigateToYear?: (categoryId: number) => void;
 }
 
@@ -604,6 +604,37 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
       const splits = splitsByTxn2.get(t.id);
       if (splits && splits.length > 0) continue; // split = categorized
       if (t.categoryId == null) total += t.amount;
+    }
+    return total;
+  })();
+
+  // Spending in categories that are NOT in the current month's budget
+  const offBudgetTotal = (() => {
+    const d = getData();
+    const budgetCatIds = new Set(d.budgets.filter((b) => b.month === month).map((b) => b.categoryId));
+    const monthStart = `${month}-01`;
+    const monthEnd = `${month}-31`;
+    const splitsByTxn2 = new Map<number, { categoryId: number; amount: number }[]>();
+    for (const s of d.transactionSplits) {
+      const arr = splitsByTxn2.get(s.transactionId) ?? [];
+      arr.push(s);
+      splitsByTxn2.set(s.transactionId, arr);
+    }
+    const incomeCatIds = new Set(
+      d.categories.filter((c) => c.isIncome || INCOME_CATEGORY_NAMES.has(c.name)).map((c) => c.id)
+    );
+    let total = 0;
+    for (const t of d.transactions) {
+      if (t.txnDate < monthStart || t.txnDate > monthEnd) continue;
+      if (t.ignoreInBudget) continue;
+      const splits = splitsByTxn2.get(t.id);
+      if (splits && splits.length > 0) {
+        for (const s of splits) {
+          if (!budgetCatIds.has(s.categoryId) && !incomeCatIds.has(s.categoryId)) total += s.amount;
+        }
+      } else if (t.categoryId != null && !budgetCatIds.has(t.categoryId) && !incomeCatIds.has(t.categoryId)) {
+        total += t.amount;
+      }
     }
     return total;
   })();
@@ -1097,6 +1128,19 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
             <button className="btn btn-ghost btn-sm" onClick={() => requestCopy('lastMonth')}>Copy budget from last month</button>
             <button className="btn btn-ghost btn-sm" onClick={() => requestCopy('experimental')}>Copy from Experimental Budgets</button>
           </div>
+        </div>
+      )}
+
+      {/* Off-budget spending banner */}
+      {offBudgetTotal > 0 && (
+        <div
+          className="card"
+          style={{ borderLeft: '3px solid #6366f1', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', cursor: onNavigateToTransactions ? 'pointer' : 'default' }}
+          onClick={() => onNavigateToTransactions?.(month)}
+        >
+          <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>Spending outside this month's budget categories:</span>
+          <span style={{ fontWeight: 700, color: '#6366f1' }}>${formatAmount(offBudgetTotal, 0)}</span>
+          {onNavigateToTransactions && <span style={{ fontSize: '0.8rem', opacity: 0.5, marginLeft: 'auto' }}>View in Txns →</span>}
         </div>
       )}
 

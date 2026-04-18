@@ -2,6 +2,8 @@ import { useRef } from 'react';
 import { getData, addCategory, saveExperimentalBudget } from '../db';
 import { parseWorkbook } from '../parsers/xlsx';
 import * as XLSX from 'xlsx';
+import { save } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 
 interface Props {
   /** compact = just buttons, no title/description (for inline use in BudgetView / ExperimentalBudgets) */
@@ -9,7 +11,7 @@ interface Props {
   onImported?: () => void;
 }
 
-function downloadTemplate() {
+async function downloadTemplate() {
   const wb = XLSX.utils.book_new();
   const budgetSheet = XLSX.utils.aoa_to_sheet([
     ['Category', 'Monthly Target'],
@@ -27,12 +29,18 @@ function downloadTemplate() {
   ]);
   XLSX.utils.book_append_sheet(wb, budgetSheet, 'Budget');
   XLSX.utils.book_append_sheet(wb, rulesSheet, 'Rules');
-  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'budget-template.xlsx'; a.click();
-  URL.revokeObjectURL(url);
+  const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' }) as string;
+  let savePath: string | null = null;
+  try {
+    savePath = await save({
+      defaultPath: 'budget-template.xlsx',
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+    });
+  } catch {
+    // ignore
+  }
+  if (!savePath) return;
+  await invoke('save_base64', { path: savePath, data: base64 });
 }
 
 function parseCsvBudget(text: string): { categoryName: string; targetAmount: number }[] {

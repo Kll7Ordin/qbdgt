@@ -652,7 +652,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
         <p style={{ fontSize: '0.85rem', opacity: 0.9, marginBottom: '0.75rem' }}>
           Permanently delete transactions for a specific month, optionally filtered by type. Category rules are kept. This cannot be undone.
         </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
           <div className="field" style={{ flex: '0 1 auto', minWidth: 100 }}>
             <label>Month</label>
             <select
@@ -704,6 +704,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
           <button
             className="btn btn-danger"
             disabled={!purgeYear || !purgeMonthNum}
+            style={{ marginBottom: '0.65rem' }}
             onClick={() => {
               const purgeMonth = `${purgeYear}-${purgeMonthNum}`;
               const monthLabel = new Date(parseInt(purgeYear), parseInt(purgeMonthNum) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -1169,7 +1170,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
             <label>Day of month</label>
             <input type="number" min="1" max="31" value={tmplDay} onChange={(e) => setTmplDay(e.target.value)} />
           </div>
-          <button className="btn btn-primary" onClick={handleAddTemplate} style={{ alignSelf: 'flex-end' }}>Add Template</button>
+          <button className="btn btn-primary" onClick={handleAddTemplate} style={{ alignSelf: 'flex-end', marginBottom: '0.65rem', flex: '0 0 auto' }}>Add Template</button>
         </div>
       </div>
 

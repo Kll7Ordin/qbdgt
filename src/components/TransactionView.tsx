@@ -311,11 +311,12 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
         </div>
       )}
 
-      <div className="month-nav" style={{ flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+      <div className="month-nav" style={{ flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.875rem', padding: '0.3rem 0.5rem' }}
             onClick={() => {
               if (monthFilter === 'all') setMonthFilter(currentMonth());
               else {
@@ -332,11 +333,12 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
             type="month"
             value={month}
             onChange={(e) => setMonthFilter(e.target.value)}
-            style={{ minWidth: 130 }}
+            style={{ minWidth: 130, fontSize: '0.875rem' }}
           />
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.875rem', padding: '0.3rem 0.5rem' }}
             onClick={() => {
               if (monthFilter === 'all') setMonthFilter(currentMonth());
               else {
@@ -351,7 +353,8 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
           </button>
           <button
             type="button"
-            className={`btn btn-sm ${monthFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+            className={`btn ${monthFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '0.875rem', padding: '0.3rem 0.6rem' }}
             onClick={() => setMonthFilter(monthFilter === 'all' ? currentMonth() : 'all')}
             title={monthFilter === 'all' ? 'Showing all months (click to filter by month)' : 'Show all months'}
           >
@@ -359,7 +362,8 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
           </button>
         </div>
         <button
-          className={`btn btn-sm ${catFilter === 'uncategorized' ? 'btn-primary' : 'btn-ghost'}`}
+          className={`btn ${catFilter === 'uncategorized' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.875rem', padding: '0.3rem 0.6rem' }}
           onClick={() => setCatFilter(catFilter === 'uncategorized' ? 'all' : 'uncategorized')}
         >
           Uncategorized
@@ -369,16 +373,16 @@ export function TransactionView({ search = '', navFilter, onNavConsumed }: Trans
           value={categoryFilter}
           onChange={(v) => setCategoryFilter(v === '' ? '' : Number(v))}
           placeholder="All categories"
-          style={{ minWidth: 160 }}
+          style={{ minWidth: 160, fontSize: '0.875rem' }}
         />
         <SearchableSelect
           options={[...new Set(allTransactions.map((t) => t.instrument).filter(Boolean))].sort().map((i) => ({ value: i, label: i }))}
           value={instrumentFilter}
           onChange={(v) => setInstrumentFilter(String(v))}
           placeholder="All instruments"
-          style={{ minWidth: 160 }}
+          style={{ minWidth: 160, fontSize: '0.875rem' }}
         />
-        <span style={{ fontSize: '0.9rem', opacity: 0.6 }}>{txns.length} transactions</span>
+        <span style={{ fontSize: '0.875rem', opacity: 0.6 }}>{txns.length} transactions</span>
         <button
           className="btn btn-primary btn-sm"
           onClick={() => setShowAddForm(!showAddForm)}

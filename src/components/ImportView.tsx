@@ -381,16 +381,19 @@ export function ImportView() {
             <div style={{ marginBottom: '0.75rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.35rem' }}>Supported formats:</div>
               <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
-                • <strong>Scotiabank Chequing Account / Debit Card</strong> (built-in) — Date, Description, Sub-description, Type of Transaction, Amount
+                • <strong>Scotiabank Chequing Account / Debit Card</strong>
               </div>
               <div style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
-                • <strong>Scotiabank Credit Card</strong> (built-in) — Date, Description, Sub-description, Amount (negative = credit)
+                • <strong>Scotiabank Credit Card</strong>
               </div>
               {customParsers.map((p) => (
                 <div key={p.id} style={{ fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.2rem' }}>
-                  • <strong>{p.name}</strong> — {p.sampleLines.split('\n')[0].slice(0, 60)}
+                  • <strong>{p.name}</strong>
                 </div>
               ))}
+              <div style={{ fontSize: '0.8rem', opacity: 0.5, marginTop: '0.25rem', fontStyle: 'italic' }}>
+                If you add new parsers via Settings, those will show up here too.
+              </div>
               <button
                 className="btn btn-ghost btn-sm"
                 style={{ marginTop: '0.35rem', fontSize: '0.8rem' }}
@@ -448,7 +451,7 @@ export function ImportView() {
         {importType === 'paypal' && (
           <>
             <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>
-              Paste your PayPal activity text below. Imported entries will be matched against existing bank transactions where possible (to avoid duplicates). Any that don't match a bank transaction can be added as new transactions instead.
+              Paste your PayPal activity text below. Imported entries will be matched against existing bank transactions and update the descriptor. Any that don't match a bank transaction can be added as new transactions instead.
             </p>
             <div className="field">
               <textarea

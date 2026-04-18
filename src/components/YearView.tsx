@@ -233,6 +233,17 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
       }
     }
 
+    // Restrict to categories that appear in the most recent completed month's budget
+    const recentMonth = monthsOfYear(year).filter((m) => m < todayMonth).at(-1);
+    const budgetedCatIds = recentMonth
+      ? new Set(allBudgets.filter((b) => b.month === recentMonth).map((b) => b.categoryId))
+      : null;
+    if (budgetedCatIds) {
+      for (const catId of [...spendByCat.keys()]) {
+        if (!budgetedCatIds.has(catId)) spendByCat.delete(catId);
+      }
+    }
+
     if (pieGrouping === 'category') {
       const entries = [...spendByCat.entries()]
         .filter(([, v]) => v > 0)
@@ -252,7 +263,7 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
       const spendByGroup = new Map<string, number>();
       for (const [catId, amount] of spendByCat) {
         const groupId = catToGroup.get(catId);
-        const groupName = groupId != null ? (groupIdToName.get(groupId) ?? 'Other') : 'Other';
+        const groupName = groupId != null ? (groupIdToName.get(groupId) ?? 'Ungrouped') : 'Ungrouped';
         spendByGroup.set(groupName, (spendByGroup.get(groupName) ?? 0) + amount);
       }
       const entries = [...spendByGroup.entries()]
@@ -593,8 +604,8 @@ export function YearView({ navFilter, onNavConsumed, darkMode = false }: YearVie
         </div>
       ) : (
         <div className="card">
-          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div style={{ maxWidth: 360, width: '100%', aspectRatio: '1', flex: '0 0 auto' }}>
+          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 320, height: 320, flexShrink: 0 }}>
               <Pie
                 data={{
                   labels: pieChartData.labels,
