@@ -12,7 +12,6 @@ import {
   deleteSavingsSchedule,
   deleteAllSavingsSchedules,
   type SavingsBucket,
-  type SavingsEntry,
   type SavingsSchedule,
 } from '../db';
 import { processSchedules, getBucketBalance } from '../logic/savings';
