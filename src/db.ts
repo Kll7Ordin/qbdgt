@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { buildSeedData, DEFAULT_BUDGET_ITEMS, DEFAULT_SAVINGS, DEFAULT_SAVINGS_BALANCES, DEFAULT_SPLIT_TEMPLATES, INCOME_CATEGORY_NAMES } from './seed';
+import { buildSeedData, buildDemoData, DEFAULT_BUDGET_ITEMS, DEFAULT_SAVINGS, DEFAULT_SAVINGS_BALANCES, DEFAULT_SPLIT_TEMPLATES, INCOME_CATEGORY_NAMES } from './seed';
 import { isEncryptedFile, encryptData, decryptData } from './utils/crypto';
 
 export interface Category {
@@ -353,6 +353,13 @@ export async function checkFileEncrypted(path: string): Promise<boolean> {
 
 export async function createNewFile(path: string): Promise<void> {
   data = buildSeedData();
+  filePath = path;
+  await persist();
+  await invoke('set_file_path', { path });
+}
+
+export async function createDemoFile(path: string): Promise<void> {
+  data = buildDemoData();
   filePath = path;
   await persist();
   await invoke('set_file_path', { path });

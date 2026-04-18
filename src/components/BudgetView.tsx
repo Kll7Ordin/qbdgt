@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { flushSync, createPortal } from 'react-dom';
 import { getData, subscribe, upsertBudget, deleteBudget, addBudgetGroup, updateBudgetGroup, deleteBudgetGroup, reorderBudgetsInGroup, addCategory, updateCategoryNote, pushUndoSnapshot, type Category, type TransactionSplit, type BudgetGroup, type ExperimentalBudget } from '../db';
+import { ImportBudgetCard } from './ImportBudgetCard';
 import { SearchableSelect } from './SearchableSelect';
 import { formatAmount } from '../utils/format';
 import { INCOME_CATEGORY_NAMES } from '../seed';
@@ -227,6 +228,7 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
   const [showPickExperimental, setShowPickExperimental] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState<{ type: 'lastMonth' | 'experimental'; expId?: number } | null>(null);
   const [experimentalBudgets, setExperimentalBudgets] = useState<ExperimentalBudget[]>([]);
+  const [totalBudgetRows, setTotalBudgetRows] = useState(0);
 
   // Keep --bar-max-overflow in sync with the midpoint between YTD and YTD Target columns
   useEffect(() => {
@@ -258,6 +260,7 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
       setCategories(d.categories);
       setBudgetGroups(d.budgetGroups ?? []);
       setExperimentalBudgets(d.experimentalBudgets ?? []);
+      setTotalBudgetRows(d.budgets.length);
       const result = buildRows(month, d.categories, d.budgetGroups ?? []);
       setRows(result.rows);
       setPriorMonthCount(result.priorMonthCount);
@@ -636,6 +639,17 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
         </div>
       </div>
 
+      {/* Import Budget — shown only when no budget has been set yet */}
+      {totalBudgetRows === 0 && (
+        <div className="card" style={{ marginBottom: '1rem', borderLeft: '3px solid var(--accent)' }}>
+          <div className="section-title" style={{ marginTop: 0 }}>Get started: Import Budget</div>
+          <p style={{ fontSize: '0.85rem', opacity: 0.75, marginBottom: '0.75rem' }}>
+            No budget yet. Import from a spreadsheet to create a draft, then apply it to this month.
+          </p>
+          <ImportBudgetCard compact />
+        </div>
+      )}
+
       {/* Summary bubbles */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         {/* Budget */}
@@ -669,7 +683,7 @@ export function BudgetView({ search = '', onNavigateToTransactions, onNavigateTo
             </div>
             <div className="summary-card">
               <span className="summary-label">Remaining</span>
-              <span className="summary-value" style={{ color: '#b45309' }}>${formatAmount(totalTarget - totalSpent, 0)}</span>
+              <span className="summary-value" style={{ color: '#b45309' }}>${formatAmount(Math.max(0, totalTarget - totalSpent), 0)}</span>
             </div>
             {occasionalGroupId != null && (
               <div className="summary-card">

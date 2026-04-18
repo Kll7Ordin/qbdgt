@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { getLastFilePath, loadFromFile, createNewFile, fileExists } from '../db';
+import { getLastFilePath, loadFromFile, createNewFile, createDemoFile, fileExists } from '../db';
 import { PasswordPrompt } from './PasswordPrompt';
 
 interface Props {
@@ -78,6 +78,24 @@ export function FileSetup({ onReady }: Props) {
     }
   }
 
+  async function handleDemo() {
+    setError('');
+    try {
+      const selected = await save({
+        filters: [{ name: 'Budget Data', extensions: ['json'] }],
+        defaultPath: 'budget-demo.json',
+      });
+      if (!selected) return;
+      const path = typeof selected === 'string' ? selected : selected;
+      setStatus('Creating demo file...');
+      await createDemoFile(path);
+      onReady();
+    } catch (e) {
+      setError(String(e));
+      setStatus('');
+    }
+  }
+
   // Password prompt for encrypted file
   if (pendingPath) {
     return (
@@ -115,6 +133,9 @@ export function FileSetup({ onReady }: Props) {
         </button>
         <button className="btn btn-ghost" onClick={handleNew}>
           Create new file
+        </button>
+        <button className="btn btn-ghost" onClick={handleDemo}>
+          Try demo data
         </button>
       </div>
 

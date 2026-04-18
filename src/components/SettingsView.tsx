@@ -27,12 +27,9 @@ import {
   changeEncryptionPassword,
   disableEncryption,
   deleteCustomParser,
-  saveExperimentalBudget,
   type RecurringTemplate,
   type Transaction,
 } from '../db';
-import { parseWorkbook } from '../parsers/xlsx';
-import * as XLSX from 'xlsx';
 import { recategorizeAll, bulkApplySplitRule, bulkCategorizeByDescriptor } from '../logic/categorize';
 import { createReadableArchive } from '../utils/export';
 import { encryptData } from '../utils/crypto';
@@ -41,6 +38,7 @@ import { checkOllama, listModels, pullModel, RECOMMENDED_MODELS } from '../logic
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ParserGenerator } from './ParserGenerator';
+import { ImportBudgetCard } from './ImportBudgetCard';
 import { SearchableSelect } from './SearchableSelect';
 import { formatAmount } from '../utils/format';
 
@@ -1401,87 +1399,7 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
       {/* ── Import Budget ── */}
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="section-title">Import Budget</div>
-        <p style={{ fontSize: '0.85rem', opacity: 0.8, marginBottom: '0.75rem' }}>
-          Upload a budget spreadsheet to create a draft in <strong>Experimental Budgets</strong>. From there you can review it and apply it to a live month manually.
-        </p>
-        <p style={{ fontSize: '0.8rem', opacity: 0.65, marginBottom: '0.75rem' }}>
-          Format: Sheet 1 — two columns: <code>Category</code>, <code>Monthly Target</code>. Sheet 2 (optional) — <code>Pattern</code>, <code>Category</code> (keyword rules).
-        </p>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              const wb = XLSX.utils.book_new();
-              const budgetSheet = XLSX.utils.aoa_to_sheet([
-                ['Category', 'Monthly Target'],
-                ['Groceries', 800],
-                ['Gas', 200],
-                ['Dining', 300],
-                ['Subscriptions', 50],
-                ['Personal Care', 100],
-              ]);
-              const rulesSheet = XLSX.utils.aoa_to_sheet([
-                ['Pattern', 'Category'],
-                ['netflix', 'Subscriptions'],
-                ['spotify', 'Subscriptions'],
-                ['loblaws', 'Groceries'],
-              ]);
-              XLSX.utils.book_append_sheet(wb, budgetSheet, 'Budget');
-              XLSX.utils.book_append_sheet(wb, rulesSheet, 'Rules');
-              const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-              const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url; a.download = 'budget-template.xlsx'; a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            ↓ Download sample template
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            style={{ fontSize: '0.85rem' }}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              try {
-                const buf = await file.arrayBuffer();
-                const { budgetLines } = parseWorkbook(buf);
-                if (budgetLines.length === 0) { alert('No budget lines found in Sheet 1.'); return; }
-                const { categories } = getData();
-                const existingNames = new Set(categories.map((c) => c.name.toLowerCase()));
-                for (const line of budgetLines) {
-                  if (!existingNames.has(line.categoryName.toLowerCase())) {
-                    await addCategory(line.categoryName);
-                  }
-                }
-                const { categories: allCats } = getData();
-                const catMap = new Map(allCats.map((c) => [c.name.toLowerCase(), c.id!]));
-                const items = budgetLines
-                  .filter((l) => catMap.has(l.categoryName.toLowerCase()))
-                  .map((l) => ({
-                    categoryId: catMap.get(l.categoryName.toLowerCase())!,
-                    categoryName: l.categoryName,
-                    groupId: null,
-                    groupName: null,
-                    targetAmount: l.targetAmount,
-                  }));
-                await saveExperimentalBudget({
-                  name: file.name.replace(/\.[^.]+$/, ''),
-                  createdAt: new Date().toISOString(),
-                  items,
-                });
-                alert(`Imported ${items.length} budget lines as an Experimental Budget. Go to Exp. Budgets to review and apply.`);
-                e.target.value = '';
-              } catch (err) {
-                alert(`Import failed: ${String(err)}`);
-              }
-            }}
-          />
-        </div>
+        <ImportBudgetCard />
       </div>
 
       {/* ── Bank CSV Formats ── */}
@@ -1492,11 +1410,17 @@ export function SettingsView({ zoom = 1, onZoomChange, search = '', darkMode = f
           Add a new format by uploading a sample file — the AI will generate a parser for it (requires Ollama).
         </p>
 
-        {/* Built-in parser */}
+        {/* Built-in parsers */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem' }}>
+          <span style={{ flex: 1, fontWeight: 500 }}>Scotia Chequing CSV</span>
+          <span style={{ opacity: 0.55 }}>Chequing</span>
+          <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>Date, Description, Sub-description, Type of Transaction, Amount</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.4 }}>built-in</span>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-          <span style={{ flex: 1, fontWeight: 500 }}>Scotia-style CSV</span>
-          <span style={{ opacity: 0.55 }}>Card / Chequing</span>
-          <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>Date, Description, Sub-description, Type, Amount</span>
+          <span style={{ flex: 1, fontWeight: 500 }}>Scotia Credit Card CSV</span>
+          <span style={{ opacity: 0.55 }}>Card</span>
+          <span style={{ opacity: 0.4, fontSize: '0.8rem' }}>Date, Description, Sub-description, Amount (negative = credit)</span>
           <span style={{ fontSize: '0.75rem', opacity: 0.4 }}>built-in</span>
         </div>
 

@@ -7,6 +7,7 @@ import {
 import { SearchableSelect } from './SearchableSelect';
 import { formatAmount } from '../utils/format';
 import { INCOME_CATEGORY_NAMES } from '../seed';
+import { ImportBudgetCard } from './ImportBudgetCard';
 
 function currentMonth(): string {
   const d = new Date();
@@ -176,6 +177,12 @@ export function ExperimentalBudgetsView() {
         Create named budget snapshots to try out different plans without affecting your real budget.
         Apply them to any month from the Budget tab.
       </p>
+
+      {/* Import Budget from XLSX */}
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div className="section-title" style={{ marginTop: 0 }}>Import Budget from XLSX</div>
+        <ImportBudgetCard />
+      </div>
 
       {/* Create form */}
       <div className="card" style={{ marginBottom: '1rem' }}>
